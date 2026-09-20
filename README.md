@@ -417,12 +417,12 @@ document_start 注入
 | 部分 | 技术 | 构建方式 |
 | --- | --- | --- |
 | **popup 弹窗** | **Vue 3**（SFC + `<script setup>` + 组合式 API） | Vite 打包 → `dist/index.html` + `dist/assets/*` |
-| **5 个注入脚本** | TypeScript | Vite（Rollup）打包为**自包含 IIFE 普通脚本** → `dist/*.js` |
+| **5 个注入脚本** | TypeScript | Vite（Rolldown）打包为**自包含 IIFE 普通脚本** → `dist/*.js` |
 
 - **只有一个构建工具：Vite。** 一条 `npm run build` 产出全部内容。
 - popup 的脚本/样式引用由 Vite 在构建时自动写进 `dist/index.html`，**源码里不写 `<script src>`**，因此不存在「引用的文件不存在」这类问题。
 - 扩展的静态资源（`manifest.json`、`icons/`）放在 `public/`，由 Vite 原样复制进 `dist/`。
-- 产物刻意保持**不压缩**（`minify: false`）且**关闭 tree-shaking**，便于安全审计时直接审阅扩展实际执行的代码。
+- 产物刻意保持**不压缩**（`minify: false`），便于安全审计时直接审阅扩展实际执行的代码。
 
 ---
 
@@ -580,14 +580,20 @@ grep -E 'new Function|eval\(' dist/assets/index.js   # 应该没有任何输出
 <img :src="ICON_URL">
 ```
 
-### 5. 为什么关掉 tree-shaking
+### 5. tree-shaking 的实际行为
 
-注入脚本的产物需要能**逐行审计**。开着 tree-shaking 时，`detector.ts` 里那些「定义了但当前没被调用」的辅助函数会被摇掉，导致「源码里有、产物里没有」，审计时容易误判。所以 `vite.config.ts` 的子构建设为 `treeshake: false`。
+注入脚本的产物需要能**逐行审计**，因此 `vite.config.ts` 里对子构建设了 `treeshake: false`，意图是保留源码中的全部函数。
+
+但当前打包器（**Rolldown**，Vite 8 起替代 Rollup）对该选项支持不完整 —— `detector.ts` 中**从未被调用**的 `cleanUrl` 仍会被移除。这不影响功能（它本来就是死代码），但审计时需要注意：**产物里缺少的某个函数，先确认它在源码中是否真的被调用过**。
 
 ### 6. 已知的、可接受的产物差异
 
-Rollup 会把**块级**函数声明提升为变量：`function traverse(){}`（写在 `if` 块内）会变成
-`let traverse2 = function(){}; var traverse = traverse2;`。语义等价（递归调用仍指向自身、外部绑定保留），做等价性比对时正则匹配不到 `function traverse(`，属正常现象。
+做等价性比对时，以下差异属正常现象，均不影响功能：
+
+| 现象 | 原因 |
+| --- | --- |
+| `function traverse(` 在产物中找不到 | 打包器把**块级**函数声明提升为变量（`let traverse2 = function(){}; var traverse = traverse2;`），递归调用与外部绑定都保留 |
+| `detector.ts` 的 `cleanUrl` 在产物中消失 | 它是死代码（源码中也从未被调用过），被 tree-shaking 移除 |
 
 ---
 
