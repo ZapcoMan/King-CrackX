@@ -131,4 +131,4 @@ popup.js  ──chrome.runtime.sendMessage──▶  content.js
 ## 致谢
 
 - 上游项目：[King-Crack](https://github.com/chaojiwudichoubie1-arch/King-Crack.git)
-- 本项目基于上游进行二次开发，在原功能基础上进行了重构与增强。
+- 本项目基于上游进行二次开发，在原功能基础上进行了重构与增强。-
