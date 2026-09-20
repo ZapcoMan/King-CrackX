@@ -255,6 +255,9 @@ export function useRouterAnalysis() {
         navigateTo,
         syncForCurrentTab,
         isCurrentRoute,
-        initRouterAnalysis
+        initRouterAnalysis,
+        hasPendingNavigation,
+        shouldAcceptMessage,
+        clearPendingNavigation
     };
 }
