@@ -1,9 +1,4 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        :root {
+:root {
             --vue-dark: #35495e;
             --vue-green: #41b883;
             --vue-red: #e53935;
@@ -636,37 +631,3 @@
             flex-wrap: wrap;
             justify-content: flex-end;
         }
-    </style>
-</head>
-<body>
-<h2>
-    <img src="/icons/icon256.png" width="20" height="20" alt="VueCrack">
-    King-Crack
-</h2>
-<div class="all-in-panel">
-    <div>
-        <div class="all-in-title">梭哈模式</div>
-        <div id="allInStatus" class="all-in-status">读取状态中...</div>
-    </div>
-    <label class="switch" title="刷新页面后生效">
-        <input id="allInToggle" type="checkbox">
-        <span class="switch-slider"></span>
-    </label>
-</div>
-
-<div id="routerAnalysisContainer"></div>
-<div id="pathListContainer"></div>
-
-<div class="api-panel">
-    <div class="api-panel-header">
-        <div>
-            <div class="all-in-title">API 端点提取</div>
-        </div>
-        <button id="apiExtractBtn" class="secondary-btn">提取API</button>
-    </div>
-    <div id="apiResultContainer"></div>
-</div>
-
-<script src="popup.js"></script>
-</body>
-</html>

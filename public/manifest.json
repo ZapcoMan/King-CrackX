@@ -4,7 +4,7 @@
   "description": "检测是否存在VUE框架并且强制注入路由守卫、提取API",
   "manifest_version": 3,
     "action": {
-    "default_popup": "popup.html",
+    "default_popup": "index.html",
     "default_icon": {
       "16": "icons/icon256.png",
       "48": "icons/icon256.png",

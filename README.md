@@ -65,23 +65,30 @@ King-CrackX 是一个 Chrome / Chromium 浏览器扩展（Manifest V3），面�
 
 ## 技术栈
 
-- **源码语言：TypeScript**（`strict` 模式全量通过类型检查）。
-- 源码位于 `src/`，构建产物输出到 **`dist/`**。`dist/` 是一个**可直接加载的完整扩展目录**（编译后的 6 个 `.js` + `manifest.json` + `popup.html` + `icons/`）。
-- **项目根目录不保留任何 `.js` 文件** —— 源码与产物彻底分离，根目录下只有 TypeScript。
-- 不引入任何打包器与运行时依赖：所有脚本保持**普通脚本（非 ES Module）**形态，因为 `content_scripts` 与 `web_accessible_resources` 不能以 module 方式加载。
-- 共享类型集中在 `src/types.d.ts`，通过环境声明（ambient declaration）供各脚本使用，避免使用 `import`/`export` 破坏脚本形态。
+一个标准的 **Vue 3 + Vite + TypeScript** 项目。
+
+| 部分 | 技术 | 构建方式 |
+| --- | --- | --- |
+| **popup 弹窗** | **Vue 3**（SFC + `<script setup>` + 组合式 API） | Vite 打包 → `dist/index.html` + `dist/assets/*` |
+| **5 个注入脚本** | TypeScript | Vite（Rollup）打包为**自包含 IIFE 普通脚本** → `dist/*.js` |
+
+- **只有一个构建工具：Vite。** 一条 `npm run build` 产出全部内容。
+- popup 的脚本/样式引用由 Vite 在构建时自动写进 `dist/index.html`，**源码里不写 `<script src>`**，不存在"引用的文件不存在"这类问题。
+- `background` / `content` / `detector` / `all-in` / `api-extractor` 必须保持**普通脚本**形态（`content_scripts` 与 MAIN world 注入脚本不支持 ES Module），因此被单独打包为自包含的 IIFE 文件；它们没有视图层，不使用 Vue。
+- 扩展的静态资源（`manifest.json`、`icons/`）放在 `public/`，由 Vite 原样复制进 `dist/`。
+- 产物刻意保持**不压缩**（`minify: false`）且**关闭 tree-shaking**，便于安全审计时直接审阅扩展实际执行的代码。
 
 ## 安装
 
 ### 0. 构建（首次使用或修改源码后必须执行）
 
-> 根目录不含任何 `.js`，浏览器无法直接加载源码，因此**必须先构建**才能使用。
+> 仓库里没有可直接加载的 `.js`，浏览器无法直接运行源码，因此**必须先构建**。
 
 ```bash
 npm install --include=dev   # 必须带 --include=dev：部分环境设置了 NODE_ENV=production 会跳过 devDependencies
-npm run build               # = tsc -p tsconfig.json && node scripts/copy-static.js
-npm run watch               # 开发时增量编译（仅编译 TS，不复制静态资源）
-npm run typecheck           # 只做类型检查，不产出文件
+npm run build               # 一条命令产出全部：popup + 5 个注入脚本 + 静态资源
+npm run dev                 # Vite 开发服务器（调试 popup 界面用）
+npm run typecheck           # 类型检查，不产出文件
 ```
 
 构建完成后会生成 `dist/` 目录，其中包含完整的扩展文件。
@@ -110,50 +117,72 @@ npm run typecheck           # 只做类型检查，不产出文件
 ## 项目结构
 
 ```
-King-CrackX/
-├── src/                          # ★ TypeScript 源码 —— 扩展的唯一事实来源
-│   ├── types.d.ts                #   全局类型契约：Vue/Router 内部结构、消息协议、结果结构
-│   ├── background.ts             #   Service Worker：按站点白名单动态注册/注销梭哈模式脚本
-│   ├── content.ts                #   内容脚本（ISOLATED world）：注入页面脚本、转发消息
-│   ├── detector.ts               #   注入页面（MAIN world）：Vue 检测 + Router 分析 + 守卫清除
-│   ├── all-in.ts                 #   注入页面（MAIN world）：document_start 前置强拦截
-│   ├── api-extractor.ts          #   注入页面（MAIN world）：API 端点静态提取 + Sourcemap 探测
-│   └── popup.ts                  #   弹窗逻辑：结果渲染、缓存、导入导出
-├── scripts/
-│   └── copy-static.js            # 构建后处理：把静态资源复制进 dist/
-├── manifest.json                 # 扩展清单源文件（MV3）
-├── popup.html                    # 弹窗 UI 与样式源文件
-├── icons/                        # 图标源文件
-├── tsconfig.json                 # 编译配置：rootDir=src，outDir=dist
-├── package.json                  # 构建脚本与 devDependencies（typescript、@types/chrome）
-├── dist/                         # ★ 构建产物 —— 在 chrome://extensions 中加载「这个」目录
-│   ├── manifest.json             #   （由上面的静态资源源文件复制而来）
-│   ├── popup.html                #
-│   ├── icons/                    #
-│   ├── background.js             #   ┐
-│   ├── content.js                #   │
-│   ├── detector.js               #   ├─ 由 src/*.ts 编译生成，请勿直接修改
-│   ├── all-in.js                 #   │
-│   ├── api-extractor.js          #   │
-│   └── popup.js                  #   ┘
+King-CrackX/                          # 标准 Vue 3 + Vite 项目布局
+├── public/                           # 静态资源（Vite 约定：原样复制进 dist）
+│   ├── manifest.json                 #   MV3 扩展清单（default_popup 指向 index.html）
+│   └── icons/icon256.png             #   扩展图标
+├── src/
+│   ├── main.ts                       # Vue 应用入口（createApp）
+│   ├── App.vue                       # 根组件：组装面板 + 注册 chrome.* 事件 + 启动流程
+│   ├── env.d.ts                      # .vue 模块声明
+│   ├── components/                   # 展示组件
+│   │   ├── AllInPanel.vue            #   梭哈模式开关与状态
+│   │   ├── RouterPanel.vue           #   路由分析状态机（loading/error/no-vue/no-router/ready）
+│   │   ├── UrlList.vue               #   完整 URL 列表、模式切换、复制/打开
+│   │   └── ApiPanel.vue              #   API 提取结果、导出与复制
+│   ├── composables/                  # 状态层（模块级单例）
+│   │   ├── useCurrentTab.ts          #   当前标签页
+│   │   ├── useAllInMode.ts           #   梭哈模式开关 + 白名单写入
+│   │   ├── useRouterAnalysis.ts      #   路由分析结果、缓存、URL 列表状态机
+│   │   └── useApiExtract.ts          #   API 提取进度/结果/导出
+│   ├── utils/                        # 纯逻辑层（不含 Vue 依赖）
+│   │   ├── url.ts                    #   URL 归一化、路由去重
+│   │   ├── routeUrls.ts              #   路由 → 完整 URL 的拼接规则
+│   │   ├── storage.ts                #   localStorage 缓存 + 白名单归一化
+│   │   ├── apiExport.ts              #   API 结果收集、TXT 导出、剪贴板
+│   │   └── dom.ts                    #   当前路由滚动定位
+│   ├── styles/popup.css              # 全局样式
+│   └── extension/                    # ★ 扩展注入脚本（无视图层，不使用 Vue）
+│       ├── types.d.ts                #   全局类型契约（Vue/Router 内部结构、消息协议）
+│       ├── background.ts             #   Service Worker：按站点白名单动态注册/注销梭哈模式脚本
+│       ├── content.ts                #   内容脚本（ISOLATED world）：注入页面脚本、转发消息
+│       ├── detector.ts               #   注入页面（MAIN world）：Vue 检测 + Router 分析 + 守卫清除
+│       ├── all-in.ts                 #   注入页面（MAIN world）：document_start 前置强拦截
+│       └── api-extractor.ts          #   注入页面（MAIN world）：API 端点静态提取 + Sourcemap 探测
+├── index.html                        # Vite 入口（= 扩展弹窗页面）
+├── vite.config.ts                    # 统一构建配置（popup + 5 个注入脚本）
+├── tsconfig.json                     # 类型检查配置
+├── package.json
+├── dist/                             # ★ 构建产物 —— chrome://extensions 加载「这个」目录
+│   ├── index.html                    #   弹窗页面（脚本/样式引用由 Vite 自动注入）
+│   ├── assets/index.js|index.css     #   Vue 应用产物
+│   ├── background.js                 #   ┐
+│   ├── content.js                    #   │
+│   ├── detector.js                   #   ├─ 注入脚本（自包含 IIFE）
+│   ├── all-in.js                     #   │
+│   ├── api-extractor.js              #   ┘
+│   ├── manifest.json                 #   复制自 public/
+│   └── icons/                        #   复制自 public/
 └── README.md
 ```
 
 > **重要**：
 > 1. 项目根目录**不存在任何 `.js` 文件**，源码与产物完全分离。
-> 2. `dist/` 里的一切都是**生成物**，不要手工编辑 —— 它由 `npm run build` 完整重建。
-> 3. 改功能请编辑 `src/` 下的 `.ts`，然后重新 `npm run build` 并在扩展页点「重新加载」。
+> 2. `dist/` 里的一切都是**生成物**，不要手工编辑 —— 由 `npm run build` 完整重建。
+> 3. 改弹窗界面编辑 `src/` 下的 `.vue` / `.ts`（除 `extension/`）；改注入脚本编辑 `src/extension/`。改完 `npm run build` 并在扩展页点「重新加载」。
+> 4. `index.html` 中**看不到** `<script src=...>` —— 脚本与样式引用由 Vite 在构建时写入 `dist/index.html`。
 
 ### 通信架构
 
 ```
-popup.js  ──chrome.runtime.sendMessage──▶  content.js
+Vue popup (src/App.vue + composables)
+        ──chrome.runtime.sendMessage──▶  content.js
                                               │  注入 <script src=chrome.runtime.getURL(...)>
                                               ▼
                                     detector.js / all-in.js / api-extractor.js  (MAIN world)
                                               │  window.postMessage
                                               ▼
-                                          content.js  ──▶  popup.js
+                                     content.js  ──▶  Vue popup
 ```
 
 页面脚本运行在 `MAIN world` 以直接访问 Vue 内部对象，`content.js` 作为桥接层在 `ISOLATED world` 中完成与扩展后台的消息转发。

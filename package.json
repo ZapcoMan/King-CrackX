@@ -1,15 +1,22 @@
 {
   "name": "king-crackx",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "King-CrackX —— Vue 路由守卫绕过 / API 端点提取 Chrome 扩展（TypeScript 源码）",
+  "type": "module",
+  "description": "King-CrackX —— Vue 路由守卫绕过 / API 端点提取 Chrome 扩展（Vue 3 + Vite + TypeScript）",
   "scripts": {
-    "build": "tsc --project tsconfig.json && node scripts/copy-static.js",
-    "watch": "tsc --project tsconfig.json --watch",
-    "typecheck": "tsc --project tsconfig.json --noEmit"
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "vue": "^3.5.43"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",
-    "typescript": "^5.6.3"
+    "@types/node": "^26.6.2",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.21"
   }
 }
