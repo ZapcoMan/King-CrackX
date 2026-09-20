@@ -2,78 +2,17 @@
 
 > 本项目基于 [King-Crack](https://github.com/chaojiwudichoubie1-arch/King-Crack.git) 进行的**二次开发**。
 
-King-CrackX 是一个 Chrome / Chromium 浏览器扩展（Manifest V3），面向**授权渗透测试与前端安全评估**场景。它可以检测目标站点是否使用 Vue 框架、读取并强制接管 Vue Router（绕过前端路由守卫）、枚举全部路由并生成可直接访问的完整 URL，同时从 JS 源码与实际请求中提取 API 端点，为后续的接口测试提供目标清单。
+适用于 Chrome / Chromium 的浏览器扩展（Manifest V3），面向**授权渗透测试与前端安全评估**：检测目标站点的 Vue 框架、绕过前端路由守卫、枚举全部路由并生成可访问的完整 URL、从源码与真实请求中提取 API 端点。
 
 ## 功能特性
 
-- **Vue 框架与版本检测** —— 识别 Vue 2 / Vue 3 根实例与版本号，兼容延迟挂载的页面。
-- **路由枚举与 URL 生成** —— 兼容 Vue Router 2/3/4 的多种数据来源，递归展开嵌套路由，按 Hash / History 模式生成可直接访问的完整 URL。
-- **梭哈模式（路由守卫绕过）** —— 在 `document_start` 抢跑，拦截守卫注册、清空存量守卫、阻断跳转，绕过前端路由鉴权。按站点白名单生效。
-- **API 端点提取** —— 汇总「页面已发出的真实请求」「JS 源码静态提取」「Sourcemap 泄露探测」三类数据，标注未调用端点作为优先测试目标，支持导出 TXT / JSON。
-- **结果缓存** —— 分析结果与上次访问路由本地缓存，重复打开秒出结果。
+- **Vue 框架与版本检测**
+- **路由枚举与完整 URL 生成**
+- **梭哈模式（绕过前端路由守卫）**
+- **API 端点提取与导出**
+- **分析结果缓存**
 
----
-
-## 技术栈
-
-一个标准的 **Vue 3 + Vite + TypeScript** 项目。
-
-| 部分 | 技术 | 构建方式 |
-| --- | --- | --- |
-| **popup 弹窗** | **Vue 3**（SFC + `<script setup>` + 组合式 API） | Vite 打包 → `dist/index.html` + `dist/assets/*` |
-| **5 个注入脚本** | TypeScript | Vite（Rolldown）打包为**自包含 IIFE 普通脚本** → `dist/*.js` |
-
-- **只有一个构建工具：Vite。** 一条 `npm run build` 产出全部内容。
-- popup 的脚本/样式引用由 Vite 在构建时自动写进 `dist/index.html`，**源码里不写 `<script src>`**，因此不存在「引用的文件不存在」这类问题。
-- 扩展的静态资源（`manifest.json`、`icons/`）放在 `public/`，由 Vite 原样复制进 `dist/`。
-- 产物刻意保持**不压缩**（`minify: false`），便于安全审计时直接审阅扩展实际执行的代码。
-
----
-
-## 安装
-
-### 0. 构建（首次使用或修改源码后必须执行）
-
-> 仓库里没有可直接加载的 `.js`，浏览器无法直接运行源码，因此**必须先构建**。
-
-```bash
-npm install --include=dev   # 必须带 --include=dev：部分环境设置了 NODE_ENV=production 会跳过 devDependencies
-npm run build               # 一条命令产出全部：popup + 5 个注入脚本 + 静态资源
-npm run dev                 # Vite 开发服务器（调试 popup 界面用）
-npm run typecheck           # 类型检查，不产出文件
-```
-
-构建完成后会生成 `dist/` 目录，其中包含完整的扩展文件。
-
-### 1. 加载扩展
-
-1. 下载或克隆本项目到本地：
-   ```bash
-   git clone https://github.com/chaojiwudichoubie1-arch/King-Crack.git
-   ```
-2. 打开 Chrome / Edge，访问 `chrome://extensions/`。
-3. 右上角开启 **开发者模式**。
-4. 点击 **加载已解压的扩展程序**，选择本项目的 **`dist/` 目录**（不是项目根目录）。
-5. 打开目标站点，点击工具栏中的 King-CrackX 图标即可使用。
-
-> 最初版本（纯 JS，无需构建，直接加载项目根目录）的安装方式见 [历史文档](docs/legacy/original-version.md)。
-
----
-
----
-
-## 使用说明
-
-| 步骤 | 操作 |
-| --- | --- |
-| 1 | 打开目标页面，点击扩展图标，自动开始 Vue 检测与路由分析 |
-| 2 | 查看 **当前Vue版本** 与 **完整URL列表**，可按需切换「标准 / 带基础路径」模式 |
-| 3 | 点击路由行的 **复制** / **打开** 进行单条验证，或 **复制所有URL** 批量导出 |
-| 4 | 如需绕过前端路由守卫，打开 **梭哈模式** 开关并刷新页面（按站点生效） |
-| 5 | 点击 **提取API** 获取端点清单，利用 **复制完整URL (Burp)** / **导出TXT** / **复制JSON** 输出结果 |
-
----
-
+各功能的完整说明见 [功能实现原理](docs/implementation.md)。
 ## 项目结构
 
 ```
@@ -126,53 +65,40 @@ King-CrackX/                          # 标准 Vue 3 + Vite 项目布局
 │   └── icons/                        #   复制自 public/
 └── README.md
 ```
+## 安装
 
-> **重要**：
-> 1. 项目根目录**不存在任何 `.js` 文件**，源码与产物完全分离。
-> 2. `dist/` 里的一切都是**生成物**，不要手工编辑 —— 由 `npm run build` 完整重建。
-> 3. 改弹窗界面编辑 `src/` 下的 `.vue` / `.ts`（除 `extension/`）；改注入脚本编辑 `src/extension/`。改完 `npm run build` 并在扩展页点「重新加载」。
-> 4. `index.html` 中**看不到** `<script src=...>` —— 脚本与样式引用由 Vite 在构建时写入 `dist/index.html`。
+```bash
+npm install --include=dev
+npm run build
+```
 
----
+构建产物在 `dist/`。打开 `chrome://extensions/`，开启开发者模式，点「加载已解压的扩展程序」，选择 **`dist/`** 目录。
 
----
+> 完整步骤与命令说明见 [开发注意事项](docs/development.md)。
+
+## 使用
+
+1. 打开目标页面，点击扩展图标，自动检测 Vue 并分析路由。
+2. 在**完整URL列表**中复制或直接打开目标路由。
+3. 需要绕过路由守卫时，打开**梭哈模式**开关并刷新页面。
+4. 点击**提取API**获取端点清单，可复制或导出。
 
 ## 文档
 
-README 只保留项目层面的说明，技术细节已拆分到以下文档：
-
 | 文档 | 内容 |
 | --- | --- |
-| [整体架构：三世界模型](docs/architecture.md) | 扩展运行在哪三个 JS 世界里、为什么必须这样设计、消息链路怎么走 |
-| [功能实现原理](docs/implementation.md) | 每个功能是怎么用代码实现的（关键函数、设计取舍） |
-| [开发注意事项](docs/development.md) | 改这套构建链路时必须遵守的约束、已踩过的坑 |
-| [最初版本说明（存档）](docs/legacy/original-version.md) | 重构前纯 JavaScript 版本的说明与安装方式 |
-
----
-
-## 权限说明
-
-| 权限 | 用途 |
-| --- | --- |
-| `activeTab` | 获取当前标签页信息 |
-| `scripting` | 动态注册梭哈模式内容脚本 |
-| `storage` | 存储梭哈模式站点白名单 |
-| `tabs` | 查询标签页、跳转路由、监听页面更新 |
-| `host_permissions: <all_urls>` | 在任意目标站点注入检测与提取脚本 |
-| `web_accessible_resources` | 允许页面加载 `detector.js` 与 `api-extractor.js` |
-
----
-
----
+| [整体架构：三世界模型](docs/architecture.md) | 扩展的运行环境与消息链路 |
+| [功能实现原理](docs/implementation.md) | 各功能怎么实现、需要哪些权限 |
+| [开发注意事项](docs/development.md) | 技术栈、项目结构、构建约束 |
 
 ## 免责声明
 
 本项目仅供 **安全研究与授权渗透测试** 使用。使用者应确保已获得目标系统的**明确书面授权**，并遵守当地法律法规。任何未经授权的测试、攻击或数据获取行为均与本项目作者无关，由使用者自行承担全部责任。
 
----
 
 ## 致谢
 
 - 上游项目：[King-Crack](https://github.com/chaojiwudichoubie1-arch/King-Crack.git)
 - 本项目基于上游进行二次开发，在原功能基础上进行了重构与增强。
 - 最初的纯 JavaScript 版本说明：[`docs/legacy/original-version.md`](docs/legacy/original-version.md)
+
