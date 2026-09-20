@@ -47,8 +47,8 @@ function stripUseStrictPlugin(): Plugin {
  * 逐个构建注入脚本。
  *
  * 为什么要 for 循环而不是一次多入口：
- *   Rollup 的 IIFE 输出格式不支持多入口（会因 code splitting 直接报错），
- *   因此每个脚本都必须作为独立构建执行一次。
+ *   IIFE 输出格式本身不支持多入口（多入口意味着 code splitting，而 IIFE 是
+ *   自包含的单文件格式），因此每个脚本都必须作为独立构建执行一次。
  */
 async function buildExtensionScripts(): Promise<void> {
     const { build } = await import('vite');
@@ -67,10 +67,13 @@ async function buildExtensionScripts(): Promise<void> {
                 target: 'chrome110',
                 rollupOptions: {
                     /**
-                     * 关闭 tree-shaking。
-                     * 这些脚本是安全工具的一部分，产物需要能被逐行审计 ——
-                     * 保留源码中的全部函数（包括当前未被调用的辅助函数），
-                     * 避免出现「源码里有、产物里没有」这种审计时的困惑。
+                     * 意图：关闭 tree-shaking，让产物与源码一一对应，便于逐行审计
+                     *      （尤其是保留源码中那些「定义了但当前未被调用」的辅助函数）。
+                     *
+                     * 现状：当前打包器（Rolldown）对此选项支持不完整 ——
+                     *      detector.ts 里从未被调用的 cleanUrl 仍会被移除。
+                     *      这不影响功能（它本来就是死代码），保留该配置是为了
+                     *      打包器支持后行为自动变成预期结果。
                      */
                     treeshake: false,
                     input: path.join(ROOT, 'src', 'extension', `${name}.ts`),
