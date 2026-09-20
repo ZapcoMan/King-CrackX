@@ -1,0 +1,15 @@
+{
+  "name": "king-crackx",
+  "version": "0.1.0",
+  "private": true,
+  "description": "King-CrackX —— Vue 路由守卫绕过 / API 端点提取 Chrome 扩展（TypeScript 源码）",
+  "scripts": {
+    "build": "tsc --project tsconfig.json && node scripts/copy-static.js",
+    "watch": "tsc --project tsconfig.json --watch",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "typescript": "^5.6.3"
+  }
+}

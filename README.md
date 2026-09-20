@@ -63,7 +63,30 @@ King-CrackX 是一个 Chrome / Chromium 浏览器扩展（Manifest V3），面�
 ### 5. 分析结果缓存
 - 基于 `localStorage` 按 URL 缓存路由分析结果（最多 15 条）与上次访问路由（最多 50 条），页面刷新或跳转后秒出结果，避免重复分析。
 
+## 技术栈
+
+- **源码语言：TypeScript**（`strict` 模式全量通过类型检查）。
+- 源码位于 `src/`，构建产物输出到 **`dist/`**。`dist/` 是一个**可直接加载的完整扩展目录**（编译后的 6 个 `.js` + `manifest.json` + `popup.html` + `icons/`）。
+- **项目根目录不保留任何 `.js` 文件** —— 源码与产物彻底分离，根目录下只有 TypeScript。
+- 不引入任何打包器与运行时依赖：所有脚本保持**普通脚本（非 ES Module）**形态，因为 `content_scripts` 与 `web_accessible_resources` 不能以 module 方式加载。
+- 共享类型集中在 `src/types.d.ts`，通过环境声明（ambient declaration）供各脚本使用，避免使用 `import`/`export` 破坏脚本形态。
+
 ## 安装
+
+### 0. 构建（首次使用或修改源码后必须执行）
+
+> 根目录不含任何 `.js`，浏览器无法直接加载源码，因此**必须先构建**才能使用。
+
+```bash
+npm install --include=dev   # 必须带 --include=dev：部分环境设置了 NODE_ENV=production 会跳过 devDependencies
+npm run build               # = tsc -p tsconfig.json && node scripts/copy-static.js
+npm run watch               # 开发时增量编译（仅编译 TS，不复制静态资源）
+npm run typecheck           # 只做类型检查，不产出文件
+```
+
+构建完成后会生成 `dist/` 目录，其中包含完整的扩展文件。
+
+### 1. 加载扩展
 
 1. 下载或克隆本项目到本地：
    ```bash
@@ -71,7 +94,7 @@ King-CrackX 是一个 Chrome / Chromium 浏览器扩展（Manifest V3），面�
    ```
 2. 打开 Chrome / Edge，访问 `chrome://extensions/`。
 3. 右上角开启 **开发者模式**。
-4. 点击 **加载已解压的扩展程序**，选择本项目根目录。
+4. 点击 **加载已解压的扩展程序**，选择本项目的 **`dist/` 目录**（不是项目根目录）。
 5. 打开目标站点，点击工具栏中的 King-CrackX 图标即可使用。
 
 ## 使用说明
@@ -88,16 +111,38 @@ King-CrackX 是一个 Chrome / Chromium 浏览器扩展（Manifest V3），面�
 
 ```
 King-CrackX/
-├── manifest.json      # 扩展清单（MV3），声明权限、内容脚本与可访问资源
-├── background.js      # Service Worker：按站点白名单动态注册/注销梭哈模式脚本
-├── content.js         # 内容脚本（ISOLATED world）：注入页面脚本、转发消息
-├── detector.js        # 注入页面（MAIN world）：Vue 检测 + Router 分析 + 守卫清除
-├── all-in.js          # 注入页面（MAIN world）：document_start 前置强拦截
-├── api-extractor.js   # 注入页面（MAIN world）：API 端点静态提取 + Sourcemap 探测
-├── popup.html         # 弹窗 UI 与样式
-├── popup.js           # 弹窗逻辑：结果渲染、缓存、导入导出
-└── icons/             # 扩展图标
+├── src/                          # ★ TypeScript 源码 —— 扩展的唯一事实来源
+│   ├── types.d.ts                #   全局类型契约：Vue/Router 内部结构、消息协议、结果结构
+│   ├── background.ts             #   Service Worker：按站点白名单动态注册/注销梭哈模式脚本
+│   ├── content.ts                #   内容脚本（ISOLATED world）：注入页面脚本、转发消息
+│   ├── detector.ts               #   注入页面（MAIN world）：Vue 检测 + Router 分析 + 守卫清除
+│   ├── all-in.ts                 #   注入页面（MAIN world）：document_start 前置强拦截
+│   ├── api-extractor.ts          #   注入页面（MAIN world）：API 端点静态提取 + Sourcemap 探测
+│   └── popup.ts                  #   弹窗逻辑：结果渲染、缓存、导入导出
+├── scripts/
+│   └── copy-static.js            # 构建后处理：把静态资源复制进 dist/
+├── manifest.json                 # 扩展清单源文件（MV3）
+├── popup.html                    # 弹窗 UI 与样式源文件
+├── icons/                        # 图标源文件
+├── tsconfig.json                 # 编译配置：rootDir=src，outDir=dist
+├── package.json                  # 构建脚本与 devDependencies（typescript、@types/chrome）
+├── dist/                         # ★ 构建产物 —— 在 chrome://extensions 中加载「这个」目录
+│   ├── manifest.json             #   （由上面的静态资源源文件复制而来）
+│   ├── popup.html                #
+│   ├── icons/                    #
+│   ├── background.js             #   ┐
+│   ├── content.js                #   │
+│   ├── detector.js               #   ├─ 由 src/*.ts 编译生成，请勿直接修改
+│   ├── all-in.js                 #   │
+│   ├── api-extractor.js          #   │
+│   └── popup.js                  #   ┘
+└── README.md
 ```
+
+> **重要**：
+> 1. 项目根目录**不存在任何 `.js` 文件**，源码与产物完全分离。
+> 2. `dist/` 里的一切都是**生成物**，不要手工编辑 —— 它由 `npm run build` 完整重建。
+> 3. 改功能请编辑 `src/` 下的 `.ts`，然后重新 `npm run build` 并在扩展页点「重新加载」。
 
 ### 通信架构
 

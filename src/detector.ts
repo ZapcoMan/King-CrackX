@@ -9,7 +9,7 @@
  *
  * 结果通过 window.postMessage 回传给 content.js 中转。
  */
-(function() {
+(function () {
     // ======== 通用工具函数 ========
 
     /**
@@ -23,18 +23,19 @@
      * 用广度优先而非递归，是为了优先在浅层命中，减少无效遍历；
      * maxDepth 限制防止极端深度的 DOM 造成栈/时间开销失控。
      *
-     * @param {Node} root - 遍历起点，通常为 document.body
-     * @param {number} [maxDepth=1000] - 最大遍历深度
-     * @returns {Node|null} Vue 根节点；未找到时为 null
+     * @param root - 遍历起点，通常为 document.body
+     * @param maxDepth - 最大遍历深度
+     * @returns Vue 根节点；未找到时为 null
      */
-    function findVueRoot(root, maxDepth = 1000) {
-        const queue = [{ node: root, depth: 0 }];
+    function findVueRoot(root: Node, maxDepth: number = 1000): VueElementLike | null {
+        const queue: Array<{ node: Node; depth: number }> = [{ node: root, depth: 0 }];
         while (queue.length) {
-            const { node, depth } = queue.shift();
+            const { node, depth } = queue.shift() as { node: Node; depth: number };
             if (depth > maxDepth) break;
 
-            if (node.__vue_app__ || node.__vue__ || node._vnode) {
-                return node;
+            const element = node as VueElementLike;
+            if (element.__vue_app__ || element.__vue__ || element._vnode) {
+                return element;
             }
 
             // 只向下遍历元素节点，其子节点入队并累加深度
@@ -50,14 +51,14 @@
     /**
      * 统一的错误处理。
      *
-     * @param {Error} error - 捕获到的错误
-     * @param {string} context - 出错位置标识，便于定位
-     * @param {boolean} [shouldStop=false] - 是否为致命错误。
+     * @param error - 捕获到的错误
+     * @param context - 出错位置标识，便于定位
+     * @param shouldStop - 是否为致命错误。
      *        为 true 时额外向扩展上报错误并返回 false，表示应中止流程。
-     * @returns {boolean} true 表示可继续执行；false 表示流程中断
+     * @returns true 表示可继续执行；false 表示流程中断
      */
-    function handleError(error, context, shouldStop = false) {
-        const errorMsg = `${context}: ${error.toString()}`;
+    function handleError(error: unknown, context: string, shouldStop: boolean = false): boolean {
+        const errorMsg = `${context}: ${String(error)}`;
         console.warn(errorMsg);
 
         if (shouldStop) {
@@ -67,13 +68,21 @@
         return true;
     }
 
+    /** 被临时接管的控制台方法原始引用 */
+    interface ConsoleOriginals {
+        log: (...data: any[]) => void;
+        warn: (...data: any[]) => void;
+        error: (...data: any[]) => void;
+        table: (tabularData?: any, properties?: string[]) => void;
+    }
+
     /**
      * 恢复被 performFullAnalysis 临时接管的控制台方法。
      * 必须成对调用，否则会造成 console 永久被改写。
      *
-     * @param {Object} originals - 保存的原始控制台方法集合
+     * @param originals - 保存的原始控制台方法集合
      */
-    function restoreConsole(originals) {
+    function restoreConsole(originals: ConsoleOriginals): void {
         console.log = originals.log;
         console.warn = originals.warn;
         console.error = originals.error;
@@ -85,10 +94,10 @@
      * 例如 "https://a.com//b/" -> "https://a.com/b"
      * 注意保留协议后的 "://"，只合并路径部分的重复斜杠。
      *
-     * @param {string} url - 原始 URL
-     * @returns {string} 清理后的 URL
+     * @param url - 原始 URL
+     * @returns 清理后的 URL
      */
-    function cleanUrl(url) {
+    function cleanUrl(url: string): string {
         return url.replace(/([^:]\/)\/+/g, '$1').replace(/\/$/, '');
     }
 
@@ -101,11 +110,12 @@
      *   3. 全局 window.Vue.version
      *   4. Vue DevTools 钩子上的 Vue 版本（生产环境常有）
      *
-     * @param {Node} vueRoot - Vue 根节点
-     * @returns {string} 版本号字符串；无法确定时返回 'unknown'
+     * @param vueRoot - Vue 根节点
+     * @returns 版本号字符串；无法确定时返回 'unknown'
      */
-    function getVueVersion(vueRoot) {
-        let version = vueRoot.__vue_app__?.version ||
+    function getVueVersion(vueRoot: VueElementLike): string {
+        let version: string | undefined =
+            vueRoot.__vue_app__?.version ||
             vueRoot.__vue__?.$root?.$options?._base?.version;
 
         if (!version || version === 'unknown') {
@@ -127,9 +137,9 @@
 
     /**
      * 上报 Vue 检测结果。
-     * @param {Object} result - 形如 { detected: boolean, method: string }
+     * @param result - 形如 { detected: boolean, method: string }
      */
-    function sendResult(result) {
+    function sendResult(result: Pick<VueDetectionResult, 'detected' | 'method'>): void {
         window.postMessage({
             type: 'VUE_DETECTION_RESULT',
             result: result
@@ -149,19 +159,23 @@
      * 因此这里是最后一道防线：即便清洗失败，也退化为发送最小可用结果，
      * 保证 popup 至少能拿到检测状态而不是卡在 loading。
      *
-     * @param {Object} result - performFullAnalysis 产出的原始结果
+     * @param result - performFullAnalysis 产出的原始结果
      */
-    function sendRouterResult(result) {
+    function sendRouterResult(result: RouterAnalysisResult): void {
         try {
             // 预处理 - 确保 allRoutes 是正确格式的数组
-            if (result && result.allRoutes) {
-                if (!Array.isArray(result.allRoutes)) {
+            let allRoutes: RouteEntry[] = [];
+            const rawRoutes: unknown = result.allRoutes;
+
+            if (rawRoutes) {
+                if (!Array.isArray(rawRoutes)) {
                     // 如果不是数组，转换为数组
-                    if (typeof result.allRoutes === 'object') {
-                        const routeArray = [];
-                        for (const key in result.allRoutes) {
-                            if (result.allRoutes.hasOwnProperty(key)) {
-                                const route = result.allRoutes[key];
+                    if (typeof rawRoutes === 'object') {
+                        const routeArray: RouteEntry[] = [];
+                        const rawObject = rawRoutes as Record<string, any>;
+                        for (const key in rawObject) {
+                            if (Object.prototype.hasOwnProperty.call(rawObject, key)) {
+                                const route = rawObject[key];
                                 if (route && typeof route === 'object') {
                                     routeArray.push({
                                         name: route.name || key,
@@ -171,13 +185,13 @@
                                 }
                             }
                         }
-                        result.allRoutes = routeArray;
+                        allRoutes = routeArray;
                     } else {
-                        result.allRoutes = [];
+                        allRoutes = [];
                     }
                 } else {
                     // 确保数组中的每个元素都有正确的结构
-                    result.allRoutes = result.allRoutes.map(route => {
+                    allRoutes = (rawRoutes as any[]).map(route => {
                         if (typeof route === 'object' && route !== null) {
                             return {
                                 name: route.name || '',
@@ -188,9 +202,9 @@
                         return { name: '', path: route || '', meta: {} };
                     });
                 }
-            } else {
-                result.allRoutes = [];
             }
+
+            result.allRoutes = allRoutes;
 
             // 序列化清理结果数据
             const sanitizedResult = sanitizeForPostMessage(result);
@@ -218,9 +232,9 @@
 
     /**
      * 上报路由分析过程中的错误。
-     * @param {string} error - 错误描述文本
+     * @param error - 错误描述文本
      */
-    function sendError(error) {
+    function sendError(error: string): void {
         window.postMessage({
             type: 'VUE_ROUTER_ANALYSIS_ERROR',
             error: error
@@ -231,11 +245,11 @@
 
     /**
      * 简单 Vue 检测：从 document.body 起查找 Vue 根节点。
-     * 作为延迟检测机制的探测入口，只判断"有没有"，不做完整分析。
+     * 作为延迟检测机制的探测入口，只判断「有没有」，不做完整分析。
      *
-     * @returns {Node|null} Vue 根节点；未检测到时为 null
+     * @returns Vue 根节点；未检测到时为 null
      */
-    function simpleVueDetection() {
+    function simpleVueDetection(): VueElementLike | null {
         const vueRoot = findVueRoot(document.body);
         return vueRoot;
     }
@@ -255,26 +269,26 @@
      * 之所以要尝试多个来源，是因为不同构建方式（完整版/运行时版）
      * 与不同 Router 版本挂载 $router 的位置存在差异。
      *
-     * @param {Node} vueRoot - Vue 根节点
-     * @returns {Object|null} Vue Router 实例；未找到时为 null
+     * @param vueRoot - Vue 根节点
+     * @returns Vue Router 实例；未找到时为 null
      */
-    function findVueRouter(vueRoot) {
+    function findVueRouter(vueRoot: VueElementLike): VueRouterLike | null {
         try {
             if (vueRoot.__vue_app__) {
                 // Vue3 + Router4
                 const app = vueRoot.__vue_app__;
 
                 if (app.config?.globalProperties?.$router) {
-                    return app.config.globalProperties.$router;
+                    return app.config.globalProperties.$router as VueRouterLike;
                 }
 
                 const instance = app._instance;
                 if (instance?.appContext?.config?.globalProperties?.$router) {
-                    return instance.appContext.config.globalProperties.$router;
+                    return instance.appContext.config.globalProperties.$router as VueRouterLike;
                 }
 
                 if (instance?.ctx?.$router) {
-                    return instance.ctx.$router;
+                    return instance.ctx.$router as VueRouterLike;
                 }
             }
 
@@ -284,7 +298,8 @@
                 return vue.$router ||
                     vue.$root?.$router ||
                     vue.$root?.$options?.router ||
-                    vue._router;
+                    vue._router ||
+                    null;
             }
         } catch (e) {
             handleError(e, 'findVueRouter');
@@ -295,10 +310,10 @@
     /**
      * 递归遍历路由数组及其所有嵌套子路由。
      *
-     * @param {Array} routes - 路由数组
-     * @param {Function} cb - 对每个路由调用的回调
+     * @param routes - 路由数组
+     * @param cb - 对每个路由调用的回调
      */
-    function walkRoutes(routes, cb) {
+    function walkRoutes(routes: RouteConfigLike[] | undefined, cb: (route: RouteConfigLike) => void): void {
         if (!Array.isArray(routes)) return;
         routes.forEach(route => {
             cb(route);
@@ -310,13 +325,13 @@
     }
 
     /**
-     * 判断 meta 字段值是否表示"真"（即需要鉴权）。
+     * 判断 meta 字段值是否表示「真」（即需要鉴权）。
      * 兼容布尔、字符串、数字三种书写形式。
      *
-     * @param {*} val - meta 字段值
-     * @returns {boolean} true 表示该字段要求鉴权
+     * @param val - meta 字段值
+     * @returns true 表示该字段要求鉴权
      */
-    function isAuthTrue(val) {
+    function isAuthTrue(val: unknown): boolean {
         return val === true || val === 'true' || val === 1 || val === '1';
     }
 
@@ -328,11 +343,11 @@
      *   - 子路径以 / 开头视为绝对路径，直接返回（Vue Router 的嵌套语义）
      *   - 否则与父路径用 / 拼接，并处理父路径结尾的斜杠
      *
-     * @param {string} base - 父级路径
-     * @param {string} path - 子级路径
-     * @returns {string} 拼接后的完整路径
+     * @param base - 父级路径
+     * @param path - 子级路径
+     * @returns 拼接后的完整路径
      */
-    function joinPath(base, path) {
+    function joinPath(base: string, path?: string): string {
         if (!path) return base || '/';
         if (path.startsWith('/')) return path;
         if (!base || base === '/') return '/' + path;
@@ -344,12 +359,12 @@
      *
      * 基础路径是部署在子目录时的前缀，例如部署在 /admin/ 下时为 '/admin'。
      * 优先取用户显式配置的 router.options.base，其次取 history.base。
-     * 该值可信度最高，popup 会用它生成"带基础路径"的 URL。
+     * 该值可信度最高，popup 会用它生成「带基础路径」的 URL。
      *
-     * @param {Object} router - Vue Router 实例
-     * @returns {string} 基础路径；未配置时为空字符串
+     * @param router - Vue Router 实例
+     * @returns 基础路径；未配置时为空字符串
      */
-    function extractRouterBase(router) {
+    function extractRouterBase(router: VueRouterLike): string {
         try {
             if (router.options?.base) {
                 return router.options.base;
@@ -364,8 +379,8 @@
         }
     }
 
-    // 页面链接缓存：避免重复查询 DOM（一次分析中会多次用到）
-    const linkCache = new Map();
+    /** 页面链接缓存：避免重复查询 DOM（一次分析中会多次用到） */
+    const linkCache = new Map<string, string[]>();
 
     /**
      * 获取页面中疑似路由链接的 href 列表（带缓存）。
@@ -375,18 +390,18 @@
      *   - 不以 // 开头（排除协议相对 URL）
      *   - 不含 .（排除带扩展名的静态资源链接）
      *
-     * @returns {string[]} 疑似路由路径列表
+     * @returns 疑似路由路径列表
      */
-    function getCachedLinks() {
+    function getCachedLinks(): string[] {
         const cacheKey = 'page-links';
         if (linkCache.has(cacheKey)) {
-            return linkCache.get(cacheKey);
+            return linkCache.get(cacheKey) as string[];
         }
 
         const links = Array.from(document.querySelectorAll('a[href]'))
             .map(a => a.getAttribute('href'))
-            .filter(href =>
-                href &&
+            .filter((href): href is string =>
+                !!href &&
                 href.startsWith('/') &&
                 !href.startsWith('//') &&
                 !href.includes('.')
@@ -405,11 +420,10 @@
      * 结果作为**候选值**：可信度低于 router.options.base，
      * popup 仅在未取到显式 base 时才会考虑使用。
      *
-     * @returns {{detectedBasePath: string, commonPrefixes: Array<{prefix: string, count: number}>}}
-     *          推测出的基础路径与各前缀的命中统计
+     * @returns 推测出的基础路径与各前缀的命中统计
      */
-    function analyzePageLinks() {
-        const result = {
+    function analyzePageLinks(): PageAnalysisResult {
+        const result: PageAnalysisResult = {
             detectedBasePath: '',
             commonPrefixes: []
         };
@@ -422,7 +436,7 @@
 
             // 取每个链接的第一段路径并计数
             const pathSegments = links.map(link => link.split('/').filter(Boolean));
-            const firstSegments = {};
+            const firstSegments: Record<string, number> = {};
 
             pathSegments.forEach(segments => {
                 if (segments.length > 0) {
@@ -454,26 +468,26 @@
      *
      * 仅针对 key 中含 "auth" 且值为真的字段（如 meta.requiresAuth）。
      * 注意：此处的判定范围比 all-in.js 中的版本更保守（只认 auth），
-     * 属于"温和模式"；梭哈模式才是全面接管。
+     * 属于「温和模式」；梭哈模式才是全面接管。
      *
      * 兼容三种路由表来源：getRoutes()（Router4）、options.routes（Router2/3）、
      * matcher（内部匹配器）。
      *
-     * @param {Object} router - Vue Router 实例
-     * @returns {Array<{path: string, name: string}>} 被修改的路由清单，供 popup 展示
+     * @param router - Vue Router 实例
+     * @returns 被修改的路由清单，供 popup 展示
      */
-    function patchAllRouteAuth(router) {
-        const modified = [];
+    function patchAllRouteAuth(router: VueRouterLike): ModifiedRoute[] {
+        const modified: ModifiedRoute[] = [];
 
         /**
          * 改写单条路由的 meta 鉴权字段。
-         * @param {Object} route - 路由对象
+         * @param route - 路由对象
          */
-        function patchMeta(route) {
+        function patchMeta(route: RouteConfigLike): void {
             if (route.meta && typeof route.meta === 'object') {
                 Object.keys(route.meta).forEach(key => {
-                    if (key.toLowerCase().includes('auth') && isAuthTrue(route.meta[key])) {
-                        route.meta[key] = false;
+                    if (key.toLowerCase().includes('auth') && isAuthTrue(route.meta?.[key])) {
+                        (route.meta as Record<string, any>)[key] = false;
                         modified.push({ path: route.path, name: route.name });
                     }
                 });
@@ -516,16 +530,15 @@
      * 清除路由守卫（温和模式）。
      *
      * 两步处理：
-     *   1. 把 beforeEach / beforeResolve / afterEach 替换为空函数，
-     *      阻断后续注册
+     *   1. 把 beforeEach / beforeResolve / afterEach 替换为空函数，阻断后续注册
      *   2. 清空已知的守卫容器数组，移除接管前已注册的守卫
      *
      * 与 all-in.js 的强拦截相比，本函数不做原型级接管、
      * 不 hook Array.prototype.push，属于一次性清理。
      *
-     * @param {Object} router - Vue Router 实例
+     * @param router - Vue Router 实例
      */
-    function patchRouterGuards(router) {
+    function patchRouterGuards(router: VueRouterLike): void {
         try {
             ['beforeEach', 'beforeResolve', 'afterEach'].forEach(hook => {
                 if (typeof router[hook] === 'function') {
@@ -539,8 +552,9 @@
             ];
 
             guardProps.forEach(prop => {
-                if (Array.isArray(router[prop])) {
-                    router[prop].length = 0;
+                const container = router[prop];
+                if (Array.isArray(container)) {
+                    container.length = 0;
                 }
             });
 
@@ -564,10 +578,10 @@
      *   - meta / query / params 等浅层对象递归清洗
      *   - 其他深层对象统一替换为 "[Object]"，避免无限递归
      *
-     * @param {*} obj - 待清洗的数据
-     * @returns {*} 可安全 postMessage 的数据
+     * @param obj - 待清洗的数据
+     * @returns 可安全 postMessage 的数据
      */
-    function sanitizeForPostMessage(obj) {
+    function sanitizeForPostMessage(obj: unknown): unknown {
         if (obj === null || obj === undefined) {
             return obj;
         }
@@ -581,17 +595,19 @@
         }
 
         if (typeof obj === 'object') {
-            if (obj.constructor && obj.constructor.name &&
-                !['Object', 'Array'].includes(obj.constructor.name)) {
-                return `[${obj.constructor.name}]`;
+            const source = obj as Record<string, any>;
+
+            if (source.constructor && source.constructor.name &&
+                !['Object', 'Array'].includes(source.constructor.name)) {
+                return `[${source.constructor.name}]`;
             }
 
-            const sanitized = Array.isArray(obj) ? [] : {};
+            const sanitized: Record<string, any> = Array.isArray(obj) ? [] : {};
 
             try {
-                for (const key in obj) {
-                    if (obj.hasOwnProperty && obj.hasOwnProperty(key)) {
-                        const value = obj[key];
+                for (const key in source) {
+                    if (typeof source.hasOwnProperty === 'function' && source.hasOwnProperty(key)) {
+                        const value = source[key];
 
                         // 特殊处理 allRoutes 数组
                         if (key === 'allRoutes' && Array.isArray(value)) {
@@ -669,20 +685,21 @@
      * 与 sanitizeForPostMessage 的区别：本函数**不递归**，
      * 遇到嵌套对象一律替换为 "[Object]"，以此切断潜在的超深结构与循环引用。
      *
-     * @param {*} obj - 待清洗的浅层对象
-     * @returns {*} 清洗后的对象，值类型只会是原始值或类型标签字符串
+     * @param obj - 待清洗的浅层对象
+     * @returns 清洗后的对象，值类型只会是原始值或类型标签字符串
      */
-    function sanitizeRouteObject(obj) {
+    function sanitizeRouteObject(obj: unknown): unknown {
         if (!obj || typeof obj !== 'object') {
             return obj;
         }
 
-        const sanitized = {};
+        const source = obj as Record<string, any>;
+        const sanitized: Record<string, any> = {};
 
         try {
-            for (const key in obj) {
-                if (obj.hasOwnProperty && obj.hasOwnProperty(key)) {
-                    const value = obj[key];
+            for (const key in source) {
+                if (typeof source.hasOwnProperty === 'function' && source.hasOwnProperty(key)) {
+                    const value = source[key];
 
                     if (typeof value === 'function') {
                         sanitized[key] = '[Function]';
@@ -712,11 +729,11 @@
      *   3. matcher.getRoutes()        —— 内部匹配器
      *   4. history.current.matched    —— 兜底：至少拿到当前匹配链
      *
-     * @param {Object} router - Vue Router 实例
-     * @returns {Array<{name: string, path: string, meta: Object}>} 路由清单
+     * @param router - Vue Router 实例
+     * @returns 路由清单
      */
-    function listAllRoutes(router) {
-        const list = [];
+    function listAllRoutes(router: VueRouterLike): RouteEntry[] {
+        const list: RouteEntry[] = [];
 
         try {
             // Vue Router 4
@@ -735,10 +752,10 @@
             if (router.options?.routes) {
                 /**
                  * 递归遍历路由配置，把嵌套子路由展开为完整路径。
-                 * @param {Array} routes - 路由配置数组
-                 * @param {string} [basePath=''] - 父级路径，用于拼接
+                 * @param routes - 路由配置数组
+                 * @param basePath - 父级路径，用于拼接
                  */
-                function traverse(routes, basePath = '') {
+                function traverse(routes: RouteConfigLike[], basePath: string = ''): void {
                     routes.forEach(r => {
                         const fullPath = joinPath(basePath, r.path);
                         list.push({ name: r.name, path: fullPath, meta: r.meta });
@@ -792,11 +809,10 @@
      *   7. 枚举全部路由
      * 无论成功或异常，都会恢复被接管的 console 方法。
      *
-     * @returns {Object} 分析结果，含 vueDetected / routerDetected / vueVersion /
-     *                   allRoutes / routerBase / pageAnalysis / modifiedRoutes / logs
+     * @returns 分析结果
      */
-    function performFullAnalysis() {
-        const result = {
+    function performFullAnalysis(): RouterAnalysisResult {
+        const result: FullRouterAnalysis = {
             vueDetected: false,
             vueVersion: null,
             routerDetected: false,
@@ -812,7 +828,7 @@
         };
 
         // 保存原始控制台函数
-        const originals = {
+        const originals: ConsoleOriginals = {
             log: console.log,
             warn: console.warn,
             error: console.error,
@@ -821,25 +837,25 @@
 
         try {
             // 拦截控制台输出
-            console.log = function(...args) {
-                result.logs.push({type: 'log', message: args.join(' ')});
+            console.log = function (...args: any[]) {
+                result.logs.push({ type: 'log', message: args.join(' ') });
                 originals.log.apply(console, args);
             };
-            console.warn = function(...args) {
-                result.logs.push({type: 'warn', message: args.join(' ')});
+            console.warn = function (...args: any[]) {
+                result.logs.push({ type: 'warn', message: args.join(' ') });
                 originals.warn.apply(console, args);
             };
-            console.error = function(...args) {
-                result.logs.push({type: 'error', message: args.join(' ')});
+            console.error = function (...args: any[]) {
+                result.logs.push({ type: 'error', message: args.join(' ') });
                 originals.error.apply(console, args);
             };
-            console.table = function(data, columns) {
+            console.table = function (data?: any, columns?: string[]) {
                 if (Array.isArray(data)) {
-                    result.logs.push({type: 'table', data: [...data]});
+                    result.logs.push({ type: 'table', data: [...data] });
                 } else {
-                    result.logs.push({type: 'table', data: {...data}});
+                    result.logs.push({ type: 'table', data: { ...data } });
                 }
-                originals.table.apply(console, arguments);
+                originals.table.call(console, data, columns);
             };
 
             // 查找Vue根实例
@@ -894,7 +910,7 @@
             return {
                 vueDetected: false,
                 routerDetected: false,
-                error: error.toString()
+                error: String(error)
             };
         }
     }
@@ -905,16 +921,16 @@
      * 延迟检测机制：应对 Vue 实例延迟挂载的场景。
      *
      * 部分页面的 Vue 应用在首屏后才初始化（如等待接口返回、异步路由），
-     * 立即检测会误判为"未使用 Vue"，因此按 0ms -> 300ms -> 600ms
+     * 立即检测会误判为「未使用 Vue」，因此按 0ms -> 300ms -> 600ms
      * 三级延迟重试，最多 3 次。
      *
      * 一旦探测到 Vue 实例，便与立即检测路径保持一致：
      * 先上报检测结果，再延迟 50ms 执行完整分析并回传。
      *
-     * @param {number} [delay=0] - 本次延迟毫秒数
-     * @param {number} [retryCount=0] - 已重试次数，达到 3 次即放弃
+     * @param delay - 本次延迟毫秒数
+     * @param retryCount - 已重试次数，达到 3 次即放弃
      */
-    function delayedDetection(delay = 0, retryCount = 0) {
+    function delayedDetection(delay: number = 0, retryCount: number = 0): void {
         // 改为最大重试3次
         if (retryCount >= 3) {
             sendResult({

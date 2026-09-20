@@ -13,12 +13,19 @@
  *
  * 由 background.js 按站点白名单动态注册，仅对用户开启过的站点生效。
  */
-(function() {
+(function () {
     const INSTALL_KEY = '__VUECRACK_ALL_IN_INSTALLED__';
     const STATE_KEY = '__VUECRACK_ALL_IN_STATE__';
 
+    /**
+     * window 的动态索引视图。
+     * 直接用 window[INSTALL_KEY] 在 TS 下无法通过类型检查，
+     * 而给 Window 加索引签名又会污染全局类型，故此处局部转换。
+     */
+    const globalWindow = window as unknown as Record<string, unknown>;
+
     // 重入保护：同一页面（含 iframe）可能被注入多次，只允许执行一次
-    if (window[INSTALL_KEY]) {
+    if (globalWindow[INSTALL_KEY]) {
         return;
     }
 
@@ -33,21 +40,21 @@
         return;
     }
 
-    // 已接管的 Router 实例，避免对同一实例重复 patch
-    const patchedRouters = new WeakSet();
-    // 已改写的原型对象（如 VueRouter.prototype），确保只改写一次
-    const patchedObjects = new WeakSet();
-    // 保存原始 push，供 hook 后透传调用
+    /** 已接管的 Router 实例，避免对同一实例重复 patch */
+    const patchedRouters = new WeakSet<object>();
+    /** 已改写的原型对象（如 VueRouter.prototype），确保只改写一次 */
+    const patchedObjects = new WeakSet<object>();
+    /** 保存原始 push，供 hook 后透传调用 */
     const originalArrayPush = Array.prototype.push;
-    // 保存原始 history 方法（当前实现未回退使用，保留以备恢复）
+    /** 保存原始 history 方法（当前实现未回退使用，保留以备恢复） */
     const originalHistory = {
         back: history.back,
         forward: history.forward,
         go: history.go
     };
 
-    // 拦截统计状态，实时上报给 popup 展示
-    const state = {
+    /** 拦截统计状态，实时上报给 popup 展示 */
+    const state: AllInStatus = {
         injected: true,
         injectedAt: Date.now(),
         routersPatched: 0,
@@ -58,15 +65,15 @@
     };
 
     // 挂到 window 上，便于在页面控制台调试查看
-    window[STATE_KEY] = state;
+    globalWindow[STATE_KEY] = state;
 
     /**
      * 构造当前拦截状态的快照对象。
      * 只输出必要字段，不直接暴露内部 state 引用，避免外部误改。
      *
-     * @returns {Object} 状态快照，供 popup 展示拦截统计
+     * @returns 状态快照，供 popup 展示拦截统计
      */
-    function getStatus() {
+    function getStatus(): AllInStatus {
         return {
             injected: state.injected,
             injectedAt: state.injectedAt,
@@ -82,7 +89,7 @@
      * 通过 window.postMessage 向 content.js 上报当前状态。
      * 发送失败（页面消息通道异常）时静默忽略，不影响拦截主逻辑。
      */
-    function emitStatus() {
+    function emitStatus(): void {
         try {
             window.postMessage({
                 type: 'VUECRACK_ALL_IN_STATUS',
@@ -96,9 +103,9 @@
 
     /**
      * 记录最近一次拦截事件并立即上报状态。
-     * @param {string} eventName - 事件描述，如"已拦截 beforeEach"
+     * @param eventName - 事件描述，如"已拦截 beforeEach"
      */
-    function mark(eventName) {
+    function mark(eventName: string): void {
         state.lastEvent = eventName;
         emitStatus();
     }
@@ -110,12 +117,12 @@
      * 失败则退化为直接赋值，再失败返回 false。
      * 用于替换 router 上的方法而不破坏页面原有属性描述符。
      *
-     * @param {Object} target - 目标对象
-     * @param {string} key - 属性名
-     * @param {*} value - 要设置的值
-     * @returns {boolean} 是否设置成功
+     * @param target - 目标对象
+     * @param key - 属性名
+     * @param value - 要设置的值
+     * @returns 是否设置成功
      */
-    function defineValue(target, key, value) {
+    function defineValue(target: object, key: string, value: unknown): boolean {
         try {
             Object.defineProperty(target, key, {
                 value,
@@ -125,7 +132,7 @@
             return true;
         } catch (error) {
             try {
-                target[key] = value;
+                (target as Record<string, unknown>)[key] = value;
                 return true;
             } catch (innerError) {
                 return false;
@@ -139,12 +146,12 @@
      * 重写 fn.toString() 使其返回 "function xxx() { [native code] }"，
      * 降低被页面反调试逻辑识别的风险。伪装失败不影响主流程。
      *
-     * @param {Function} fn - 替换后的替身函数
-     * @param {string} name - 伪装显示的函数名
+     * @param fn - 替换后的替身函数
+     * @param name - 伪装显示的函数名
      */
-    function maskToString(fn, name) {
+    function maskToString(fn: (...args: any[]) => any, name: string): void {
         try {
-            defineValue(fn, 'toString', function() {
+            defineValue(fn, 'toString', function () {
                 return `function ${name}() { [native code] }`;
             });
         } catch (error) {
@@ -153,17 +160,17 @@
     }
 
     /**
-     * 生成"守卫注册拦截器"。
+     * 生成「守卫注册拦截器」。
      *
      * 用途：替换 router.beforeEach / beforeResolve / afterEach。
      * 页面再调用这些方法注册守卫时会被静默吞掉（仅计数），
      * 并返回一个空的移除函数以保持 API 形态兼容，避免调用方报错。
      *
-     * @param {string} name - 被替换的钩子名，用于统计与日志
-     * @returns {Function} 拦截器函数
+     * @param name - 被替换的钩子名，用于统计与日志
+     * @returns 拦截器函数
      */
-    function makeGuardBlocker(name) {
-        const blocker = function() {
+    function makeGuardBlocker(name: string): (...args: any[]) => () => void {
+        const blocker = function (..._args: any[]): () => void {
             state.guardRegistrationBlocked += 1;
             mark(`已拦截 ${name}`);
             return function removeBlockedGuard() {};
@@ -173,17 +180,17 @@
     }
 
     /**
-     * 生成"Router 跳转拦截器"。
+     * 生成「Router 跳转拦截器」。
      *
      * 用途：替换 router.push / replace / go，阻止页面把用户踢回登录页。
      * push/replace 的调用契约要求返回 Promise，故返回
      * Promise.resolve(false) 表示"跳转被拒绝"。
      *
-     * @param {string} name - 被替换的方法名
-     * @returns {Function} 拦截器函数
+     * @param name - 被替换的方法名
+     * @returns 拦截器函数
      */
-    function makeRouterJumpBlocker(name) {
-        const blocker = function() {
+    function makeRouterJumpBlocker(name: string): (...args: any[]) => Promise<boolean> | undefined {
+        const blocker = function (..._args: any[]): Promise<boolean> | undefined {
             state.routerJumpBlocked += 1;
             mark(`已拦截 router.${name}`);
             if (name === 'push' || name === 'replace') {
@@ -196,33 +203,33 @@
     }
 
     /**
-     * 生成"浏览器跳转拦截器"。
+     * 生成「浏览器跳转拦截器」。
      *
      * 用途：替换 history.back/forward/go、location.assign/replace、window.close，
      * 阻止页面用原生方式强制离开当前页。
      *
-     * @param {string} name - 被替换的方法全名，如 'history.back'
-     * @returns {Function} 拦截器函数
+     * @param name - 被替换的方法全名，如 'history.back'
+     * @returns 拦截器函数
      */
-    function makeBrowserJumpBlocker(name) {
-        const blocker = function() {
+    function makeBrowserJumpBlocker(name: string): (...args: any[]) => undefined {
+        const blocker = function (..._args: any[]): undefined {
             state.browserJumpBlocked += 1;
             mark(`已拦截 ${name}`);
             return undefined;
         };
         // 伪装时只取方法名部分（'history.back' -> 'back'）
-        maskToString(blocker, name.split('.').pop());
+        maskToString(blocker, name.split('.').pop() as string);
         return blocker;
     }
 
     /**
-     * 判断某个 meta 字段值是否表示"需要鉴权"。
+     * 判断某个 meta 字段值是否表示「需要鉴权」。
      * 兼容布尔、字符串、数字三种写法。
      *
-     * @param {*} value - meta 字段值
-     * @returns {boolean} true 表示该字段要求鉴权
+     * @param value - meta 字段值
+     * @returns true 表示该字段要求鉴权
      */
-    function isAuthTrue(value) {
+    function isAuthTrue(value: unknown): boolean {
         return value === true || value === 'true' || value === 1 || value === '1';
     }
 
@@ -232,18 +239,19 @@
      * 把 key 中含 auth / login / permission 且值为真的字段改为 false，
      * 使前端路由级别的鉴权判断失效。递归处理 children 以覆盖嵌套路由。
      *
-     * @param {Object} route - 路由对象
+     * @param route - 路由对象
      */
-    function patchRouteMeta(route) {
+    function patchRouteMeta(route: RouteConfigLike): void {
         if (!route || typeof route !== 'object') {
             return;
         }
 
         if (route.meta && typeof route.meta === 'object') {
-            Object.keys(route.meta).forEach(key => {
+            const meta = route.meta as Record<string, any>;
+            Object.keys(meta).forEach(key => {
                 const lowerKey = key.toLowerCase();
-                if ((lowerKey.includes('auth') || lowerKey.includes('login') || lowerKey.includes('permission')) && isAuthTrue(route.meta[key])) {
-                    route.meta[key] = false;
+                if ((lowerKey.includes('auth') || lowerKey.includes('login') || lowerKey.includes('permission')) && isAuthTrue(meta[key])) {
+                    meta[key] = false;
                 }
             });
         }
@@ -261,20 +269,20 @@
      *   - options.routes       ：Vue Router 2/3 的原始配置
      *   - matcher.getRoutes()  ：内部匹配器中的路由记录
      *
-     * @param {Object} router - Vue Router 实例
+     * @param router - Vue Router 实例
      */
-    function patchRoutes(router) {
+    function patchRoutes(router: VueRouterLike): void {
         try {
             if (typeof router.getRoutes === 'function') {
                 router.getRoutes().forEach(patchRouteMeta);
             }
 
             if (Array.isArray(router.options?.routes)) {
-                router.options.routes.forEach(patchRouteMeta);
+                (router.options as { routes: RouteConfigLike[] }).routes.forEach(patchRouteMeta);
             }
 
             if (Array.isArray(router.matcher?.getRoutes?.())) {
-                router.matcher.getRoutes().forEach(patchRouteMeta);
+                (router.matcher!.getRoutes as () => RouteConfigLike[])().forEach(patchRouteMeta);
             }
         } catch (error) {
             // 路由元信息失败不影响其他强拦截。
@@ -282,15 +290,15 @@
     }
 
     /**
-     * 清空一个"守卫容器"。
+     * 清空一个「守卫容器」。
      *
      * 不同版本 Router 的内部守卫可能存放在数组、Set、Map，
      * 或带 list 数组 / reset 方法的自定义容器中，此处逐一适配。
      *
-     * @param {*} value - 待清空的容器
-     * @returns {boolean} 是否成功清空
+     * @param value - 待清空的容器
+     * @returns 是否成功清空
      */
-    function clearGuardContainer(value) {
+    function clearGuardContainer(value: unknown): boolean {
         try {
             if (Array.isArray(value)) {
                 value.length = 0;
@@ -303,12 +311,13 @@
             }
 
             if (value && typeof value === 'object') {
-                if (Array.isArray(value.list)) {
-                    value.list.length = 0;
+                const container = value as { list?: unknown; reset?: unknown };
+                if (Array.isArray(container.list)) {
+                    container.list.length = 0;
                     return true;
                 }
-                if (typeof value.reset === 'function') {
-                    value.reset();
+                if (typeof container.reset === 'function') {
+                    container.reset();
                     return true;
                 }
             }
@@ -323,9 +332,9 @@
      * 清空 router 上所有已知的守卫容器属性。
      * 属性名清单覆盖 Vue Router 2/3/4 各版本的内部实现差异。
      *
-     * @param {Object} router - Vue Router 实例
+     * @param router - Vue Router 实例
      */
-    function clearKnownGuardContainers(router) {
+    function clearKnownGuardContainers(router: VueRouterLike): void {
         [
             'beforeGuards',
             'beforeResolveGuards',
@@ -352,30 +361,32 @@
      * 顺序敏感：必须先替换钩子方法再清空容器，
      * 否则页面后续仍可能通过原方法重新注册守卫。
      *
-     * @param {Object} router - Vue Router 实例
-     * @returns {boolean} true 表示本次成功接管；false 表示无效或已接管过
+     * @param router - Vue Router 实例（结构不可信，需运行时校验）
+     * @returns true 表示本次成功接管；false 表示无效或已接管过
      */
-    function patchRouter(router) {
+    function patchRouter(router: unknown): boolean {
         if (!router || typeof router !== 'object' || patchedRouters.has(router)) {
             return false;
         }
 
         patchedRouters.add(router);
 
+        const target = router as VueRouterLike;
+
         ['beforeEach', 'beforeResolve', 'afterEach'].forEach(name => {
-            if (typeof router[name] === 'function') {
-                defineValue(router, name, makeGuardBlocker(name));
+            if (typeof target[name] === 'function') {
+                defineValue(target, name, makeGuardBlocker(name));
             }
         });
 
         ['push', 'replace', 'go'].forEach(name => {
-            if (typeof router[name] === 'function') {
-                defineValue(router, name, makeRouterJumpBlocker(name));
+            if (typeof target[name] === 'function') {
+                defineValue(target, name, makeRouterJumpBlocker(name));
             }
         });
 
-        clearKnownGuardContainers(router);
-        patchRoutes(router);
+        clearKnownGuardContainers(target);
+        patchRoutes(target);
 
         state.routersPatched += 1;
         mark('已接管 Router');
@@ -383,16 +394,16 @@
     }
 
     /**
-     * 在原型层面接管 Vue Router（覆盖"尚未创建的实例"）。
+     * 在原型层面接管 Vue Router（覆盖「尚未创建的实例」）。
      *
      * 为什么需要：逐实例接管只能处理已存在的 Router，
      * 若页面上存在全局 VueRouter 构造函数（UMD 构建），
      * 在此处 patch 原型可以抢先覆盖后续 new 出来的所有实例，
-     * 相当于把拦截提前到"实例诞生之前"。
+     * 相当于把拦截提前到「实例诞生之前」。
      *
      * 用 patchedObjects 保证原型只被改写一次。
      */
-    function patchVueRouterPrototype() {
+    function patchVueRouterPrototype(): void {
         try {
             const proto = window.VueRouter?.prototype;
             if (!proto || patchedObjects.has(proto)) {
@@ -428,26 +439,26 @@
      * 全程 try/catch：探测过程会触碰页面对象的内部属性，
      * 某些实现可能抛出异常，此处需容错返回 null。
      *
-     * @param {Element} element - 待探测的 DOM 元素
-     * @returns {Object|null} Vue Router 实例；未找到时为 null
+     * @param element - 待探测的 DOM 元素
+     * @returns Vue Router 实例；未找到时为 null
      */
-    function findVueRouterFromElement(element) {
+    function findVueRouterFromElement(element: VueElementLike): VueRouterLike | null {
         try {
             if (element.__vue_app__) {
                 const app = element.__vue_app__;
-                return app.config?.globalProperties?.$router ||
+                return (app.config?.globalProperties?.$router ||
                     app._instance?.appContext?.config?.globalProperties?.$router ||
                     app._instance?.ctx?.$router ||
-                    null;
+                    null) as VueRouterLike | null;
             }
 
             if (element.__vue__) {
                 const vue = element.__vue__;
-                return vue.$router ||
+                return (vue.$router ||
                     vue.$root?.$router ||
                     vue.$root?.$options?.router ||
                     vue._router ||
-                    null;
+                    null) as VueRouterLike | null;
             }
         } catch (error) {
             return null;
@@ -465,20 +476,20 @@
      *   - 上限 8000 个节点，避免超大页面导致长时间占用主线程
      *   - 每次扫描都顺带尝试 patch 原型，覆盖动态创建的实例
      */
-    function scanRouters() {
+    function scanRouters(): void {
         patchVueRouterPrototype();
 
         if (!document.documentElement) {
             return;
         }
 
-        const queue = [document.documentElement];
-        const visited = new Set();
+        const queue: Node[] = [document.documentElement];
+        const visited = new Set<Node>();
         let scanned = 0;
 
         // 广度优先遍历，带节点数上限保护
         while (queue.length && scanned < 8000) {
-            const node = queue.shift();
+            const node = queue.shift() as Node;
             scanned += 1;
 
             if (!node || visited.has(node)) {
@@ -488,7 +499,7 @@
 
             // 只探测元素节点（nodeType 1）
             if (node.nodeType === 1) {
-                const router = findVueRouterFromElement(node);
+                const router = findVueRouterFromElement(node as VueElementLike);
                 if (router) {
                     patchRouter(router);
                 }
@@ -514,10 +525,10 @@
      *
      * 安全性：栈信息读取失败时一律放行，避免误伤页面正常数组操作。
      */
-    function installArrayPushGuardBlocker() {
-        const hookedPush = function() {
+    function installArrayPushGuardBlocker(): void {
+        const hookedPush = function (this: unknown, ...args: any[]): number {
             // 只关心"推入函数"的场景，普通数据 push 直接放行
-            if (arguments.length > 0 && typeof arguments[0] === 'function') {
+            if (args.length > 0 && typeof args[0] === 'function') {
                 try {
                     const stack = new Error().stack || '';
                     if (
@@ -535,7 +546,7 @@
             }
 
             // 正常路径：调用原始 push 保持行为不变
-            return originalArrayPush.apply(this, arguments);
+            return originalArrayPush.apply(this, args);
         };
 
         maskToString(hookedPush, 'push');
@@ -553,7 +564,7 @@
      * Location 原型的改写需要 try/catch —— 部分页面通过属性描述符
      * 保护了 Location，强行改写会抛异常，此时跳过即可。
      */
-    function installBrowserJumpBlockers() {
+    function installBrowserJumpBlockers(): void {
         if (typeof history.back === 'function') {
             defineValue(history, 'back', makeBrowserJumpBlocker('history.back'));
         }
@@ -581,8 +592,8 @@
         }
     }
 
-    // 防抖定时器句柄，保证同一时刻只有一个待执行的扫描任务
-    let scanTimer = null;
+    /** 防抖定时器句柄，保证同一时刻只有一个待执行的扫描任务 */
+    let scanTimer: ReturnType<typeof setTimeout> | null = null;
 
     /**
      * 延迟调度一次路由扫描（带去重保护）。
@@ -590,9 +601,9 @@
      * DOM 频繁变动时若每次都立即扫描会严重卡顿，
      * 因此已存在待执行任务时直接忽略新请求（合并为一次扫描）。
      *
-     * @param {number} delay - 延迟毫秒数
+     * @param delay - 延迟毫秒数
      */
-    function scheduleScan(delay) {
+    function scheduleScan(delay: number): void {
         if (scanTimer) {
             return;
         }
@@ -604,12 +615,12 @@
     }
 
     /**
-     * 启动 DOM 变更监听，持续发现并接管"后创建"的 Router。
+     * 启动 DOM 变更监听，持续发现并接管「后创建」的 Router。
      *
      * SPA 常按需加载路由或延迟挂载组件，一次性扫描无法覆盖，
      * 因此监听整棵文档树的节点增删，变动后延迟触发扫描。
      */
-    function startObserver() {
+    function startObserver(): void {
         if (!document.documentElement || typeof MutationObserver !== 'function') {
             return;
         }
@@ -628,7 +639,7 @@
     // ===== 响应 popup 的状态查询请求 =====
     // content.js 转发 popup 的查询意图，此处回传当前拦截统计。
     // 只处理来自当前页面主世界且带 data 的消息，避免干扰其他消息。
-    window.addEventListener('message', event => {
+    window.addEventListener('message', (event: MessageEvent) => {
         if (event.source !== window || !event.data) {
             return;
         }
