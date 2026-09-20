@@ -204,7 +204,12 @@
         var urls = [];
         var seen = Object.create(null);
 
-        // 内部去重添加
+        /**
+         * 内部去重添加：同一 URL 只收集一次，并保持收集顺序。
+         * 用 Object.create(null) 作 seen 表，避免原型链上的键名干扰判断。
+         *
+         * @param {string} u - 待添加的 JS URL
+         */
         function add(u) {
             if (!u || seen[u]) return;
             seen[u] = true;
