@@ -14,6 +14,7 @@ import { onMounted, ref, watch } from 'vue';
 import AllInPanel from './components/AllInPanel.vue';
 import RouterPanel from './components/RouterPanel.vue';
 import ApiPanel from './components/ApiPanel.vue';
+import SecurityPanel from './components/SecurityPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { currentTabId, currentTabUrl, queryActiveTab } from './composables/useCurrentTab';
 import { useAllInMode } from './composables/useAllInMode';
@@ -179,6 +180,7 @@ onMounted(async () => {
     <AllInPanel />
     <RouterPanel />
     <ApiPanel />
+    <SecurityPanel />
 
     <SettingsPanel v-if="showSettings" @close="showSettings = false" />
 </template>
