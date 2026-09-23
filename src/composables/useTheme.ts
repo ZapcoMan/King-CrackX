@@ -1,4 +1,4 @@
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch } from 'vue';
 
 export type ThemeMode = 'light' | 'dark' | 'system' | 'geek';
 
@@ -63,21 +63,18 @@ function getThemeLabel(theme: ThemeMode): string {
     return labels[theme];
 }
 
+const savedTheme = loadTheme();
+currentTheme.value = savedTheme;
+applyTheme(savedTheme);
+
+if (savedTheme === 'system') {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        applyTheme('system');
+    });
+}
+
 watch(currentTheme, theme => {
     applyTheme(theme);
-});
-
-onMounted(() => {
-    const saved = loadTheme();
-    currentTheme.value = saved;
-    applyTheme(saved);
-
-    if (saved === 'system') {
-        const media = window.matchMedia('(prefers-color-scheme: dark)');
-        media.addEventListener('change', () => {
-            applyTheme('system');
-        });
-    }
 });
 
 export function useTheme() {
