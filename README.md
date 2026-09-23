@@ -11,6 +11,7 @@
 - **梭哈模式（绕过前端路由守卫）**
 - **API 端点提取与导出**
 - **分析结果缓存**
+- **多主题切换（浅色 / 深色 / 跟随系统 / 极客）**
 
 各功能的完整说明见 [功能实现原理](docs/implementation.md)。
 
@@ -102,4 +103,3 @@ npm run build
 - 上游项目：[King-Crack](https://github.com/chaojiwudichoubie1-arch/King-Crack.git)
 - 本项目基于上游进行二次开发，在原功能基础上进行了重构与增强。
 - 最初的纯 JavaScript 版本说明：[`docs/legacy/original-version.md`](docs/legacy/original-version.md)
-
