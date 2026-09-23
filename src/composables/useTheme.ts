@@ -47,12 +47,28 @@ function loadTheme(): ThemeMode {
     return 'geek';
 }
 
+/**
+ * 切换主题。
+ *
+ * 执行顺序：
+ *   1. 更新响应式状态（触发 UI 重新渲染）
+ *   2. 持久化到 localStorage（下次打开自动恢复）
+ *   3. 应用主题到 DOM（设置 data-theme / data-color-scheme 属性）
+ *
+ * @param theme - 目标主题模式
+ */
 function setTheme(theme: ThemeMode): void {
     currentTheme.value = theme;
     saveTheme(theme);
     applyTheme(theme);
 }
 
+/**
+ * 获取主题的中文显示标签。
+ *
+ * @param theme - 主题模式
+ * @returns 对应的中文名称，用于设置面板下拉选项显示
+ */
 function getThemeLabel(theme: ThemeMode): string {
     const labels: Record<ThemeMode, string> = {
         light: '浅色',
