@@ -959,68 +959,38 @@ h3 {
     text-transform: uppercase;
 }
 
-.theme-list {
-    display: flex;
-    flex-direction: column;
+.theme-select {
+    width: 100%;
+    padding: 10px 14px;
     border: 1px solid var(--border-primary);
     border-radius: 6px;
-    overflow: hidden;
-}
-
-.theme-option {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(30, 58, 95, 0.5);
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.theme-option:last-child {
-    border-bottom: none;
-}
-
-.theme-option:hover {
-    background: rgba(0, 212, 255, 0.05);
-}
-
-.theme-option.active {
-    background: rgba(0, 255, 136, 0.08);
-    border-left: 3px solid var(--neon-green);
-}
-
-.theme-option-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.theme-option-label {
+    background: var(--bg-secondary);
     color: var(--text-primary);
     font-size: 13px;
     font-weight: 500;
-}
-
-.theme-option-desc {
-    color: var(--text-muted);
-    font-size: 11px;
-}
-
-.theme-option-indicator {
-    flex-shrink: 0;
-}
-
-.indicator-dot {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 2px solid var(--border-primary);
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
     transition: all 0.2s ease;
 }
 
-.indicator-dot.active {
+.theme-select:hover {
+    border-color: var(--neon-blue);
+    box-shadow: var(--glow-sm) var(--neon-blue);
+}
+
+.theme-select:focus {
     border-color: var(--neon-green);
-    background: var(--neon-green);
     box-shadow: var(--glow-sm) var(--neon-green);
+}
+
+.theme-select option {
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }

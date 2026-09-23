@@ -44,22 +44,11 @@ const emit = defineEmits<{
                     主题
                 </div>
 
-                <div class="theme-list">
-                    <div
-                        v-for="option in themeOptions"
-                        :key="option"
-                        class="theme-option"
-                        :class="{ active: currentTheme === option }"
-                        @click="setTheme(option)"
-                    >
-                        <div class="theme-option-info">
-                            <span class="theme-option-label">{{ getThemeLabel(option) }}</span>
-                        </div>
-                        <div class="theme-option-indicator">
-                            <div class="indicator-dot" :class="{ active: currentTheme === option }"></div>
-                        </div>
-                    </div>
-                </div>
+                <select class="theme-select" v-model="currentTheme" @change="setTheme(currentTheme)">
+                    <option v-for="option in themeOptions" :key="option" :value="option">
+                        {{ getThemeLabel(option) }}
+                    </option>
+                </select>
             </div>
         </div>
     </div>
