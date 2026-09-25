@@ -123,8 +123,8 @@ const {
                 </div>
 
                 <div class="copy-actions">
-                    <button class="secondary-btn" @click="exportMarkdown">{{ exportButtonText }}</button>
-                    <button class="secondary-btn" @click="copyReport">{{ copyReportText }}</button>
+                    <button class="secondary-btn" title="导出完整报告（含梭哈模式、路由分析、API提取、安全审计）" @click="exportMarkdown">{{ exportButtonText }}</button>
+                    <button class="secondary-btn" title="复制完整报告到剪贴板" @click="copyReport">{{ copyReportText }}</button>
                 </div>
             </template>
 
