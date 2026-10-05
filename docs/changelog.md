@@ -28,6 +28,8 @@
 ### UI 适配
 - `RouterPanel.vue` / `useRouterAnalysis.ts` 变为框架感知：版本标题、状态文案按命中的框架显示（如「当前React版本」）；`no-vue` 文案改为「未检测到 Vue/React 应用」，`no-router` 提示「检测到 X，但未找到可枚举的路由」。
 - ready 状态新增「路由库」行，展示命中的 `routerLib`（Vue 侧固定为 Vue Router）与其版本 / 模式标签。
+- `no-router`（检测到框架但未找到可枚举路由）状态由报错红改为**警告黄**（`.warning` 状态样式 + 三角警示图标）——这属于正常降级而非错误。
+- 默认主题从「极客」调整为「**跟随系统**」（`useTheme.ts` 初始值与无缓存回退值）；已手动选过主题的用户仍沿用其 localStorage 选择。
 
 ### 已知限制
 - 声明式 React Router（`<Routes>/<Route>`、v5 `<Switch>`）无集中路由表，只能从 Fiber 采集已挂载的 `path`，未渲染的嵌套分支可能采不全、深层相对路径难以还原完整前缀；data router 与 Next.js/TanStack 站点可获得更完整清单。
