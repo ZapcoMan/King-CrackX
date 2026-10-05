@@ -8,8 +8,8 @@
 | 世界 | 文件 | 能做什么 | 不能做什么 |
 | --- | --- | --- | --- |
 | **扩展后台** | `src/extension/background.ts` | 完整的 `chrome.*` API、动态注册内容脚本 | 接触不到页面 DOM |
-| **内容脚本**（ISOLATED world） | `src/extension/content.ts` | `chrome.*` API + 页面 DOM | **看不到页面里的 Vue 对象** |
-| **页面主世界**（MAIN world） | `detector.ts` / `all-in.ts` / `api-extractor.ts` | 直接读写页面 `window` 与 Vue 内部对象 | **完全不能用 `chrome.*`** |
+| **内容脚本**（ISOLATED world） | `src/extension/content.ts` | `chrome.*` API + 页面 DOM | **看不到页面里的 Vue / React 内部对象** |
+| **页面主世界**（MAIN world） | `detector.ts` / `all-in.ts` / `api-extractor.ts` | 直接读写页面 `window` 与框架内部对象（Vue 实例 / Fiber 节点 / Router 实例） | **完全不能用 `chrome.*`** |
 
 这决定了两段式的消息链路：
 

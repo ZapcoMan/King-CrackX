@@ -3,9 +3,9 @@
 > 本文档是 [README](../README.md) 的补充材料，逐条说明 README 里列出的功能**是怎么用代码实现的**。
 > 每节的结构是：目标 → 实现于哪个文件 → 关键函数与设计取舍。
 
-### 1. Vue 框架与版本检测
+### 1. 框架与版本检测（Vue / React）
 
-**目标**：识别页面是否使用 Vue、是 Vue 2 还是 Vue 3、版本号是多少，并兼容「Vue 延迟挂载」的页面。
+**目标**：识别页面使用的是 Vue 还是 React、大版本与具体版本号，并兼容「框架延迟挂载」的页面。检测入口 `detectFramework()` 先查 Vue，未命中再查 React，两者都没有才走延迟重试。
 
 **实现于** `src/extension/detector.ts`
 
@@ -51,11 +51,32 @@
 
 #### ④ 结果如何回到 popup
 
-检测结果与完整分析结果都通过 `window.postMessage` 发出（`VUE_DETECTION_RESULT` / `VUE_ROUTER_ANALYSIS_RESULT`），再由 `content.ts` 转发给 popup。**「先发轻量的检测结果、再发完整的分析结果」是刻意的**：让 popup 立刻有反馈，而不是干等一次耗时较长的完整分析。
+检测结果与完整分析结果都通过 `window.postMessage` 发出（`VUE_DETECTION_RESULT` / `VUE_ROUTER_ANALYSIS_RESULT`），再由 `content.ts` 转发给 popup。**「先发轻量的检测结果、再发完整的分析结果」是刻意的**：让 popup 立刻有反馈，而不是干等一次耗时较长的完整分析。消息类型沿用 Vue 时代命名以保持 popup 零改动，React 结果只是在载荷里多带 `framework: 'react'`、`routerLib`、`routerVersion` 三个字段。
 
-### 2. 路由信息枚举与 URL 生成
+#### ⑤ 找 React 根容器 —— `findReactRoot()`
 
-**目标**：拿到 Vue Router 的全部路由（含嵌套子路由），并按 Hash / History 模式生成可直接访问的完整 URL。
+React 没有 Vue 那样的全局实例，靠 **DOM 节点上的 Fiber 属性**定位，按可信度依次尝试：
+
+1. `document.getElementById('root')` / `'app'`（脚手架默认挂载点）
+2. `document.body.firstElementChild`
+3. `document.body` 本身
+
+对候选节点调用 `getReactFiber()` 取 Fiber，取不到再从 `document.querySelectorAll('div, main')` 里广度搜一小圈。
+
+#### ⑥ 取 Fiber 与版本号 —— `getReactFiber()` / `getReactVersion()`
+
+Fiber 引用挂在 DOM 节点以 `__reactFiber$` / `__reactContainer` 开头的（带随机后缀的）属性上，因此遍历 `ownKeys` 按**前缀**匹配。拿到 Fiber 后遍历 `memoizedState` 钩子链，命中 `__reactContainer` 即确认为 React 容器。
+
+版本号按可信度：`react-stack-bottom-frame` 调试标记 → Fiber 节点上的 `_debugSource`/内部标记 → DevTools 全局钩子 `window.__REACT_DEVTOOLS_GLOBAL_HOOK__`（生产环境常见，遍历其 `renderers` 取 version）。拿不到返回 `unknown`。
+
+#### ⑦ 应对 React 延迟挂载
+
+与 Vue 一样，React 也常在首屏之后才 `createRoot().render()`，立即检测会漏判。`delayedDetection` 重试命中 React 后，先 `postMessage` 上报检测结果，再等 **800ms**（`setTimeout(..., 800)`）给 Fiber 树与 Router 挂载留时间，才执行 `analyzeAndReport`（见第 2 节）。若立即就命中 React，同样延迟 100ms 再分析。
+
+
+### 2. 路由枚举与 URL 生成（Vue / React）
+
+**目标**：拿到路由的全部路径（含嵌套子路由），并按 Hash / History 模式生成可直接访问的完整 URL。Vue 侧针对 Vue Router；React 侧针对 React Router / TanStack Router / Next.js 多种路由库，并带兜底与降级。
 
 **实现分两半**：枚举在 MAIN world（`src/extension/detector.ts`），URL 拼接在 popup（`src/utils/routeUrls.ts`）。
 
@@ -138,9 +159,33 @@ History 模式
 - `dedupeUrlItems()`：按归一化后的 URL 去重
 - `normalizeRoutePath()` / `cleanUrl()`：统一处理前导斜杠、结尾斜杠、重复斜杠
 
-### 3. 梭哈模式（强制接管 Vue Router）
+#### ⑦ React 路由枚举的总入口 —— `collectReactRoutes(fiber)`
 
-**目标**：在页面业务代码执行**之前**抢跑，把路由守卫与鉴权跳转全部废掉，从而直接访问受保护路由。
+React 的路由库比 Vue 分散得多，因此用**五级优先级分发**，命中即止。每级都会先设置 `routerLib` / `routerVersion`，再由对应采集器填充路由数组；全部落空时返回 `routerLib: '未知路由库'`，界面据此显示为**黄色警告**（「检测到 React，但未找到可枚举的路由」），而非红色报错。
+
+| 优先级 | 检测方法 | 路由库 | 采集函数 |
+| --- | --- | --- | --- |
+| 1 | `window.next.version` + `router.components`/`appRouteCache` | Next.js | `collectNextRoutes()` |
+| 2 | `hasDataRouterShape()`：`routes` 可枚举 + 函数 `navigate` + `state` | React Router v6.4+ / v7 | `collectRRDataRoutes()` |
+| 3 | `latestFiber` 向上走 `.return` 命中 `navigate` + `state.location` + `options` | TanStack Router | `collectTanStackRoutes()` |
+| 4 | 带 `router` 上下文但无 `routes` → Fiber 树扫描 | React Router v5~v6 声明式 | `collectRoutesFromFiber()` |
+| 5 | 上述全空 → 扫描站内 `<a href>` | 锚点兜底 | `collectAnchorRoutes()` |
+
+#### ⑧ 各路由库的采集要点
+
+- **Next.js（`collectNextRoutes`）**：优先用 `router.components` / `__next_app__.require` / DevTools 钩子的 `appRouteCache` 拿到 App Router 的 `page`/`layout` 清单，用 `normaliseAppPath` 去掉 `(group)` 段、把 `[slug]`/`[[...slug]]` 归一为 `:param`；拿不到就从 `<a href>` 的 pathname 反推 `segments → children` 前缀树（`buildPathTree` + `collectFromPathTree`）。
+- **React Router data（`collectRRDataRoutes`）**：递归 `routes` 数组，用 `joinPath` 拼嵌套路径；同时尝试 `router.matches` 补充。
+- **React Router 声明式（`collectRoutesFromFiber`）**：遍历整棵 Fiber 树，把 `memoizedProps.path` 且带 `element`/`Component`/`getelement` 的节点当作路由收集（覆盖 v5~v6 的 `<Route path>`）。
+- **TanStack（`collectTanStackRoutes`）**：递归 `options.routes` 的 `children`，用 `toFullPath` 拼路径。
+
+#### ⑨ 自研/未知路由库的降级（`collectAnchorRoutes`）
+
+GitHub 这类站点用自研路由，既非标准库也拿不到内部实例。此时退化为**扫描站内 `<a href>`**：过滤掉外链、`#`/`javascript:`/`mailto:`、静态资源后缀，把路径参数（`/jobs/:method`、`/settings/:page`、数字段）归一化后去重，得到一份「实际可达页面」清单。路由数为 0 时 `analyzeAndReport` 会把面板置为 `empty`，popup 显示黄色警告。
+
+
+### 3. 梭哈模式（强制接管前端路由）
+
+**目标**：在页面业务代码执行**之前**抢跑，把路由守卫与鉴权跳转全部废掉，从而直接访问受保护路由。Vue 侧接管 Vue Router；React 侧接管 React Router / TanStack 的 `navigate` 与 Next.js 的 `router.push/replace`，浏览器层拦截与框架无关。
 
 **实现于** `src/extension/all-in.ts`，由 `src/extension/background.ts` 动态注册
 
@@ -237,6 +282,27 @@ document_start 注入
 
 `all-in.ts` 维护一份统计（`routersPatched` / `guardRegistrationBlocked` / `routerJumpBlocked` / `browserJumpBlocked` / `lastEvent`），每次拦截事件后通过 `postMessage` 上报，popup 里显示为「已注入 · 守卫 N · Router N · 浏览器 N」。
 
+#### ⑨ React 侧的接管策略：为什么改 `navigate` 就够了
+
+React Router v6+ 没有 Vue 那种集中式 `beforeEach` 守卫，鉴权跳转散落在 `<Navigate>`、`useNavigate` + `useEffect`、loader 抛重定向里，但**最终都会调用 `router.navigate`**。因此把 `navigate` 换成拦截器（`patchReactRouter`），就能阻止「被踢回登录页」，与 Vue 侧改 `router.push/replace` 同构。TanStack Router 同样以 `navigate` 为跳转出口，一套逻辑通吃。
+
+> 浏览器层（`history.*` / `location.assign/replace` / `window.close`）的跳转拦截由 `installBrowserJumpBlockers` 统一处理，**与框架无关**，React 直接受益，`patchReactRouter` 里不再重复。
+
+#### ⑩ 识别可接管的 React 路由 —— `isReactRouterLike()`
+
+结构不可信的对象需运行时校验：要求「有函数 `navigate` 且有 `state` 对象」，再附加一个库特定特征（`routes` 数组 / `state.location` / `state.matches` / `options`）以降低误判，从而同时覆盖 React Router data router 与 TanStack Router。
+
+#### ⑪ 从 Fiber 树挖出 router —— `findReactRouterFromElement()`
+
+与 detector.ts 发现逻辑一致，但这里只做「找到即可」，不展开路由：从挂载元素取 `__reactContainer` / `_reactRootContainer._internalRoot` / `__reactFiber` 溯回根 Fiber，再广度遍历 `memoizedProps`、`stateNode` 与 `memoizedState` 钩子链，用 `isReactRouterLike` 命中即返回。上限 6000 节点，`visited` 切断循环。
+
+#### ⑫ 接管 Next.js —— `patchNextRouter()`
+
+Next 的鉴权跳转走 `window.next.router.push` / `replace`（Pages 与 App Router 的 `redirect` 最终都经这两个方法）。把它们替换为返回 `Promise.resolve(false)` 的拦截器即可。`window.next` 在 hydration 之后才出现，因此由 `scanRouters()` 反复尝试，直到接管成功。
+
+上述三个入口（Vue Router / React 路由 / Next Router）都由同一套 `scanRouters()` 的「多次扫描 + MutationObserver + 七个时间点兜底」机制持续发现，`WeakSet`（`patchedRouters`）保证每个实例只接管一次。
+
+
 ### 4. API 端点提取
 
 **目标**：从三个数据源汇总接口清单，标注哪些已被真实调用，并探测 sourcemap 泄露。
@@ -262,6 +328,8 @@ document_start 注入
 - `performance.getEntriesByType('resource')` —— **懒加载 chunk 的救命稻草**：这类脚本动态插入执行后可能已被移除，DOM 查不到，但 performance 有记录
 
 两者合并去重，最多取 **80 个**（`MAX_SCRIPTS`）以控制耗时。
+
+`isAnalyzableUrl()` 只放行 `http(s)` 资源：其它扩展注入的 `chrome-extension://` 脚本会被跳过，避免抓取它们的 sourcemap 触发 `web_accessible_resources` 拒绝加载与 `ERR_FAILED` 噪音（`collectScriptSources` 与 `checkSourceMap` 两处都过滤）。
 
 #### ③ 静态提取与降噪
 
@@ -392,8 +460,8 @@ document_start 注入
 
 以下是各功能的完整描述（从 README 移入，作为后续实现章节的总纲）。
 
-- **Vue 框架与版本检测** —— 识别 Vue 2 / Vue 3 根实例与版本号，兼容延迟挂载的页面。
-- **路由枚举与 URL 生成** —— 兼容 Vue Router 2/3/4 的多种数据来源，递归展开嵌套路由，按 Hash / History 模式生成可直接访问的完整 URL。
-- **梭哈模式（路由守卫绕过）** —— 在 `document_start` 抢跑，拦截守卫注册、清空存量守卫、阻断跳转，绕过前端路由鉴权。按站点白名单生效。
+- **框架与版本检测（Vue / React）** —— 识别 Vue 2 / Vue 3 根实例，或 React Fiber 容器与版本号；兼容延迟挂载的页面。
+- **路由枚举与 URL 生成** —— Vue 侧兼容 Vue Router 2/3/4 的多种数据来源；React 侧适配 React Router（data / 声明式）、TanStack Router、Next.js，并对自研路由降级为锚点兜底。递归展开嵌套路由，按 Hash / History 模式生成可直接访问的完整 URL。
+- **梭哈模式（路由守卫绕过）** —— 在 `document_start` 抢跑，Vue 侧拦截守卫注册、清空存量守卫、阻断跳转；React 侧接管 `navigate`（React Router / TanStack）与 `next.router.push/replace`（Next.js）。按站点白名单生效。
 - **API 端点提取** —— 汇总「页面已发出的真实请求」「JS 源码静态提取」「Sourcemap 泄露探测」三类数据，标注未调用端点作为优先测试目标，支持导出 TXT / JSON。
 - **结果缓存** —— 分析结果与上次访问路由本地缓存，重复打开秒出结果。

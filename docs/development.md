@@ -87,25 +87,31 @@ King-CrackX/                          # 标准 Vue 3 + Vite 项目布局
 │   │   ├── AllInPanel.vue            #   梭哈模式开关与状态
 │   │   ├── RouterPanel.vue           #   路由分析状态机（loading/error/no-vue/no-router/ready）
 │   │   ├── UrlList.vue               #   完整 URL 列表、模式切换、复制/打开
-│   │   └── ApiPanel.vue              #   API 提取结果、导出与复制
+│   │   ├── ApiPanel.vue              #   API 提取结果、导出与复制
+│   │   ├── SecurityPanel.vue         #   安全审计结果与报告导出
+│   │   └── SettingsPanel.vue         #   主题切换等设置
 │   ├── composables/                  # 状态层（模块级单例）
 │   │   ├── useCurrentTab.ts          #   当前标签页
 │   │   ├── useAllInMode.ts           #   梭哈模式开关 + 白名单写入
 │   │   ├── useRouterAnalysis.ts      #   路由分析结果、缓存、URL 列表状态机
-│   │   └── useApiExtract.ts          #   API 提取进度/结果/导出
+│   │   ├── useApiExtract.ts          #   API 提取进度/结果/导出
+│   │   ├── useSecurityAudit.ts       #   安全审计触发与结果状态
+│   │   └── useTheme.ts               #   主题模式（浅色/深色/跟随系统/极客，默认跟随系统）
 │   ├── utils/                        # 纯逻辑层（不含 Vue 依赖）
 │   │   ├── url.ts                    #   URL 归一化、路由去重
 │   │   ├── routeUrls.ts              #   路由 → 完整 URL 的拼接规则
 │   │   ├── storage.ts                #   localStorage 缓存 + 白名单归一化
 │   │   ├── apiExport.ts              #   API 结果收集、TXT 导出、剪贴板
+│   │   ├── securityAudit.ts          #   安全审计算法与敏感关键词规则
+│   │   ├── securityReport.ts         #   Markdown 审计报告生成
 │   │   └── dom.ts                    #   当前路由滚动定位
 │   ├── styles/popup.css              # 全局样式
 │   └── extension/                    # ★ 扩展注入脚本（无视图层，不使用 Vue）
-│       ├── types.d.ts                #   全局类型契约（Vue/Router 内部结构、消息协议）
+│       ├── types.d.ts                #   全局类型契约（Vue/React/Router 内部结构、消息协议）
 │       ├── background.ts             #   Service Worker：按站点白名单动态注册/注销梭哈模式脚本
 │       ├── content.ts                #   内容脚本（ISOLATED world）：注入页面脚本、转发消息
-│       ├── detector.ts               #   注入页面（MAIN world）：Vue 检测 + Router 分析 + 守卫清除
-│       ├── all-in.ts                 #   注入页面（MAIN world）：document_start 前置强拦截
+│       ├── detector.ts               #   注入页面（MAIN world）：Vue/React 检测 + 多路由库枚举 + 守卫清除
+│       ├── all-in.ts                 #   注入页面（MAIN world）：document_start 前置强拦截（Vue Router / React navigate / Next.js）
 │       └── api-extractor.ts          #   注入页面（MAIN world）：API 端点静态提取 + Sourcemap 探测
 ├── index.html                        # Vite 入口（= 扩展弹窗页面）
 ├── vite.config.ts                    # 统一构建配置（popup + 5 个注入脚本）
@@ -169,7 +175,7 @@ npm run typecheck           # 类型检查，不产出文件
 
 1. 下载或克隆本项目到本地：
    ```bash
-   git clone https://github.com/chaojiwudichoubie1-arch/King-Crack.git
+   git clone https://github.com/ZapcoMan/King-CrackX.git
    ```
 2. 打开 Chrome / Edge，访问 `chrome://extensions/`。
 3. 右上角开启 **开发者模式**。

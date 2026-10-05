@@ -2,7 +2,7 @@
 
 ## 功能概述
 
-安全审计是 King-CrackX 新增的核心功能，用于自动检测 Vue 应用中的安全风险，包括：
+安全审计是 King-CrackX 的核心功能，用于自动检测 Vue / React 应用中的安全风险，包括：
 
 1. **敏感 API 检测** - 识别包含高危关键词的 API 端点
 2. **路由权限分析** - 分析每个路由的权限配置
@@ -59,6 +59,8 @@
 - **认证相关**: `requiresAuth`, `needLogin`, 任何包含 `auth` 的 key
 - **角色控制**: `roles`, `role` (数组或字符串)
 - **权限控制**: `permissions`, `perm` (数组或字符串)
+
+> **框架差异**：路由级 meta 权限是 Vue Router 的约定，因此「路由权限分析」主要针对 Vue 应用。React 侧（React Router / TanStack / Next.js）通常不在路由对象上携带这类 meta，路由权限结论可能不完整；但**敏感 API 检测**与 **Sourcemap 泄露检测**基于 URL 与源码，与框架无关，对 Vue / React 同样有效。
 
 ### 风险评级逻辑
 
