@@ -30,6 +30,7 @@
 - ready 状态新增「路由库」行，展示命中的 `routerLib`（Vue 侧固定为 Vue Router）与其版本 / 模式标签。
 - `no-router`（检测到框架但未找到可枚举路由）状态由报错红改为**警告黄**（`.warning` 状态样式 + 三角警示图标）——这属于正常降级而非错误。
 - 默认主题从「极客」调整为「**跟随系统**」（`useTheme.ts` 初始值与无缓存回退值）；已手动选过主题的用户仍沿用其 localStorage 选择。
+- 安全审计面板样式与其它面板统一：移除 `SecurityPanel.vue` 的 scoped 硬编码样式，改由 `popup.css` 全局主题 token 驱动——面板对齐 `.api-panel` 边框卡片 + 强调条，风险五档色（critical/high/medium/low/safe）映射到 `--neon-*` token 并经 `color-mix` 派生底色，自动适配浅色/深色/极客；分组标题、发现项列表、来源徽标复用既有的 `api-section-title`/`api-list`/`api-item` 规范。顺带清除了 `SecurityPanel`/`ApiPanel` 中未定义的 `--gray-*` 变量引用。
 
 ### 已知限制
 - 声明式 React Router（`<Routes>/<Route>`、v5 `<Switch>`）无集中路由表，只能从 Fiber 采集已挂载的 `path`，未渲染的嵌套分支可能采不全、深层相对路径难以还原完整前缀；data router 与 Next.js/TanStack 站点可获得更完整清单。

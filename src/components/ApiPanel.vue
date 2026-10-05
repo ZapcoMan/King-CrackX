@@ -152,7 +152,7 @@ async function onCopyJson(): Promise<void> {
                             <button class="api-copy-item-btn" @click="copyItem('live:' + index, item.url)">{{ itemCopyLabel('live:' + index) }}</button>
                         </div>
                     </template>
-                    <div v-else class="api-item"><span class="api-item-text" style="color:var(--gray-500)">暂无（操作一下页面再重新提取可捕获真实请求）</span></div>
+                    <div v-else class="api-item"><span class="api-item-text" style="color:var(--text-muted)">暂无（操作一下页面再重新提取可捕获真实请求）</span></div>
                 </div>
 
                 <div class="api-section-title">JS源码静态提取：{{ apiStats.staticCount }} 条（未调用 {{ apiStats.uncalledCount }} 条 = 优先测试目标）</div>
@@ -171,7 +171,7 @@ async function onCopyJson(): Promise<void> {
                             <button class="api-copy-item-btn" @click="copyItem('static:' + index, item.fullUrl)">{{ itemCopyLabel('static:' + index) }}</button>
                         </div>
                     </template>
-                    <div v-else class="api-item"><span class="api-item-text" style="color:var(--gray-500)">未提取到端点</span></div>
+                    <div v-else class="api-item"><span class="api-item-text" style="color:var(--text-muted)">未提取到端点</span></div>
                 </div>
 
                 <div v-if="sourceMaps.length" class="sourcemap-warn">

@@ -20,6 +20,12 @@
     --glow-md: 0 0 10px;
     --glow-lg: 0 0 20px;
     --glow-xl: 0 0 30px;
+    /* 风险语义色：映射到霓虹色 token，随 light/dark/geek 主题自动适配 */
+    --risk-critical: var(--neon-red);
+    --risk-high: var(--neon-orange);
+    --risk-medium: var(--neon-yellow);
+    --risk-low: var(--neon-blue);
+    --risk-safe: var(--neon-green);
 }
 
 [data-theme="light"],
@@ -1617,6 +1623,193 @@ h3 {
 .api-copy-actions {
     flex-wrap: wrap;
     justify-content: flex-end;
+}
+
+/* ===== 安全审计面板 ===== */
+/* 与其它面板一致：带左侧渐变强调条的边框卡片 */
+.security-panel {
+    position: relative;
+    overflow: hidden;
+    margin: 16px 20px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-card);
+}
+
+.security-panel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(180deg, var(--risk-critical), var(--risk-high));
+    box-shadow: var(--glow-md) var(--risk-critical);
+}
+
+/* 风险总览卡片 */
+.security-summary {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+}
+
+.summary-header {
+    margin-bottom: 12px;
+}
+
+.risk-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+/* 五档风险色：文字用主题霓虹 token，背景用 color-mix 派生，自动适配全部主题 */
+.risk-badge.risk-critical { color: var(--risk-critical); background: color-mix(in srgb, var(--risk-critical) 14%, transparent); border-color: var(--risk-critical); }
+.risk-badge.risk-high     { color: var(--risk-high);     background: color-mix(in srgb, var(--risk-high) 14%, transparent);     border-color: var(--risk-high); }
+.risk-badge.risk-medium   { color: var(--risk-medium);   background: color-mix(in srgb, var(--risk-medium) 14%, transparent);   border-color: var(--risk-medium); }
+.risk-badge.risk-low      { color: var(--risk-low);      background: color-mix(in srgb, var(--risk-low) 14%, transparent);      border-color: var(--risk-low); }
+.risk-badge.risk-safe     { color: var(--risk-safe);     background: color-mix(in srgb, var(--risk-safe) 14%, transparent);     border-color: var(--risk-safe); }
+
+.summary-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.stat-item {
+    flex: 1;
+    text-align: center;
+}
+
+.stat-label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.stat-value {
+    display: block;
+    color: var(--text-primary);
+    font-size: 20px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.risk-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.risk-tag {
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.risk-tag.critical { color: var(--risk-critical); background: color-mix(in srgb, var(--risk-critical) 14%, transparent); border-color: var(--risk-critical); }
+.risk-tag.high     { color: var(--risk-high);     background: color-mix(in srgb, var(--risk-high) 14%, transparent);     border-color: var(--risk-high); }
+.risk-tag.medium   { color: var(--risk-medium);   background: color-mix(in srgb, var(--risk-medium) 14%, transparent);   border-color: var(--risk-medium); }
+.risk-tag.low      { color: var(--risk-low);      background: color-mix(in srgb, var(--risk-low) 14%, transparent);      border-color: var(--risk-low); }
+.risk-tag.safe     { color: var(--risk-safe);     background: color-mix(in srgb, var(--risk-safe) 14%, transparent);     border-color: var(--risk-safe); }
+
+/* 分组区块：标题风格对齐 .api-section-title */
+.security-section {
+    margin-bottom: 16px;
+}
+
+.section-title {
+    margin-bottom: 8px;
+    color: var(--neon-purple);
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* 发现项列表复用 .api-list / .api-item，仅按风险等级补左侧强调边 */
+.api-item.risk-critical { border-left: 3px solid var(--risk-critical); background: color-mix(in srgb, var(--risk-critical) 8%, transparent); }
+.api-item.risk-high     { border-left: 3px solid var(--risk-high);     background: color-mix(in srgb, var(--risk-high) 8%, transparent); }
+.api-item.risk-medium   { border-left: 3px solid var(--risk-medium);   background: color-mix(in srgb, var(--risk-medium) 8%, transparent); }
+.api-item.risk-low      { border-left: 3px solid var(--risk-low);      background: color-mix(in srgb, var(--risk-low) 8%, transparent); }
+.api-item.risk-safe     { border-left: 3px solid var(--risk-safe);     background: color-mix(in srgb, var(--risk-safe) 8%, transparent); }
+
+.risk-icon {
+    flex-shrink: 0;
+    font-size: 14px;
+    margin-right: 4px;
+}
+
+/* 每条发现项下方的次要说明行（与面板底部 .api-meta 区分命名，避免样式串台） */
+.api-item-meta {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.api-source-badge {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.api-source-badge.live {
+    color: var(--neon-blue);
+    background: color-mix(in srgb, var(--neon-blue) 12%, transparent);
+    border-color: var(--neon-blue);
+}
+
+.api-source-badge.static {
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+}
+
+.recommendations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.recommendation-item {
+    padding: 8px 12px;
+    border: 1px solid var(--border-primary);
+    border-left: 3px solid var(--neon-blue);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* 极客主题：徽标与标签补霓虹辉光，与其它面板徽章统一 */
+[data-theme="geek"] .risk-badge,
+[data-theme="geek"] .risk-tag,
+[data-theme="geek"] .api-source-badge.live {
+    text-shadow: 0 0 8px currentColor;
 }
 
 .settings-btn {
