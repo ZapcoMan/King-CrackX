@@ -1,24 +1,37 @@
 # King-CrackX 更新日志
 
-## v0.3.0 - React 框架支持
+## v0.3.0 - React 生态框架支持
 
 ### 新增功能
 
-#### React 自动检测与路由分析
+#### React 自动检测与框架分发
 - `detector.ts` 升级为**框架自动分发**：先探测 Vue，未命中再探测 React，二者共用同一套消息协议（结果对象新增 `framework` 字段）。
 - React 检测覆盖三种挂载标记：`__reactContainer$`（18+ 并发根）、`_reactRootContainer`（≤17 legacy）、`__reactFiber$`（兜底上溯根）。
 - 版本识别按可信度回退：`window.React.version` → DevTools 钩子 renderers → 基于挂载标记的启发式大版本标签。
-- 路由枚举：从 Fiber 树发现 v6.4+ data router 实例（`routes` + `navigate` + `state` 三要素判定），递归展开相对路径为完整路径；拿不到可静态枚举的实例时退化为运行时 `state.matches` 收集，并复用页面链接前缀分析推测候选基础路径。
+
+#### React 侧多路由库适配（按优先级依次尝试）
+不再局限于 React Router data router，`collectReactRoutes` 对**所有与本插件功能（路由枚举 / 绕过）相关的常见 React 路由方案**做了适配，并记录命中的 `routerLib` 与 `routerVersion`：
+1. **Next.js** —— `window.next` 存在即判定，Pages Router 枚举 `router.components` 的 keys，App Router 尽力探测 `appRouteCache`。
+2. **React Router data router（v6.4+ / v7）** —— 从 Fiber 树发现 `{ routes, navigate, state }` 实例，递归展开相对路径为完整路径；配置树为空时退化到运行时 `state.matches`。
+3. **TanStack Router** —— 识别 `{ navigate, state.location, options }` 特征，优先取 `state.routes`，回退 `routesById` / `options.routes`，读取 `fullPath`。
+4. **React Router 声明式（v4/v5/v6/v7）** —— 无集中路由表时，遍历 Fiber 从 `memoizedProps.path` 采集 `<Route>` / `<Switch>` 声明的路径，并按形态标注模式标签。
+5. **锚点兜底** —— 自研路由或无法静态枚举时，采集站内 `<a href>` 作为候选，标记 `detected: false`。
+
+所有分支均会纳入 `window.location.pathname`，并复用页面链接前缀分析推测候选基础路径，保证列表可用、绕路有落点。
 
 #### React 梭哈模式（绕过鉴权跳转）
-- `all-in.ts` 的 `scanRouters` 同时接管 Vue Router 与 React Router（同一元素先 Vue 后 React）。
-- React Router v6 无集中式守卫，鉴权统一经 `router.navigate`，故接管聚焦「跳转层」：替换 `navigate` 为拦截器阻止被踢回登录页；浏览器层（`history.*` / `location.*` / `window.close`）拦截与框架无关，React 同样受益。
+- `all-in.ts` 的 `scanRouters` 同时接管 Vue Router 与 React 侧路由实例（同一元素先 Vue 后 React）。
+- `isReactRouterLike` 泛化为「可接管的 React 路由实例」判定，同时兼容 React Router 与 TanStack Router；替换其 `navigate` 为拦截器阻止被踢回登录页（返回 `Promise` 以兼容 `.then` 链式调用）。
+- 新增 `patchNextRouter`，接管 `window.next.router` 的 `push` / `replace`。
+- 浏览器层（`history.*` / `location.*` / `window.close`）拦截与框架无关，React 同样受益。
 
 ### UI 适配
 - `RouterPanel.vue` / `useRouterAnalysis.ts` 变为框架感知：版本标题、状态文案按命中的框架显示（如「当前React版本」）；`no-vue` 文案改为「未检测到 Vue/React 应用」，`no-router` 提示「检测到 X，但未找到可枚举的路由」。
+- ready 状态新增「路由库」行，展示命中的 `routerLib`（Vue 侧固定为 Vue Router）与其版本 / 模式标签。
 
 ### 已知限制
-- 声明式 `<Routes>/<Route>`（非 data router）在运行时没有可静态枚举的集中路由表，此类页面可能仅能拿到当前匹配路径；推荐用 data router 的站点可获得完整路由清单。
+- 声明式 React Router（`<Routes>/<Route>`、v5 `<Switch>`）无集中路由表，只能从 Fiber 采集已挂载的 `path`，未渲染的嵌套分支可能采不全、深层相对路径难以还原完整前缀；data router 与 Next.js/TanStack 站点可获得更完整清单。
+- Next.js App Router 的路由表在运行时多为编译期产物，`appRouteCache` 探测为尽力而为，命中率低于 Pages Router。
 
 ### 说明
 - React 检测/枚举逻辑折入现有 `detector.ts` 与 `all-in.ts`，**未新增注入脚本文件**，因此 `vite.config.ts`、`manifest.json` 的打包与 `web_accessible_resources` 配置无需改动。
