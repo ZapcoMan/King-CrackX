@@ -4,7 +4,7 @@ export type ThemeMode = 'light' | 'dark' | 'system' | 'geek';
 
 const STORAGE_KEY = 'king-crackx-theme';
 
-const currentTheme = ref<ThemeMode>('geek');
+const currentTheme = ref<ThemeMode>('system');
 
 const isDark = ref(true);
 
