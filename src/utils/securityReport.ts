@@ -9,6 +9,7 @@
  */
 
 import type { SecurityAuditReport, SensitiveApiDetection, RoutePermissionAnalysis } from './securityAudit';
+import type { UrlItem } from './url';
 
 const RISK_ICONS: Record<string, string> = {
     critical: '🔴',
@@ -46,6 +47,8 @@ export interface FullReportData {
     pageUrl: string;
     allInStatus?: AllInStatus | null;
     routerAnalysis?: RouterAnalysisResult | null;
+    /** 路由拼接后的完整 URL 列表（由 buildRouteUrlList 生成） */
+    routeFullUrls?: UrlItem[];
     apiExtract?: ApiExtractResult | null;
     securityAudit?: SecurityAuditReport | null;
 }
@@ -141,6 +144,19 @@ export function generateFullReportMarkdown(data: FullReportData): string {
             for (const route of ra.allRoutes) {
                 const metaStr = route.meta ? JSON.stringify(route.meta) : '-';
                 lines.push('| ' + escapeMarkdown(route.path || '-') + ' | ' + escapeMarkdown(route.name || '-') + ' | ' + escapeMarkdown(metaStr) + ' |');
+            }
+            lines.push('');
+        }
+
+        if (data.routeFullUrls && data.routeFullUrls.length > 0) {
+            lines.push('### 路由完整 URL 列表');
+            lines.push('');
+            lines.push('共 ' + data.routeFullUrls.length + ' 条可访问 URL：');
+            lines.push('');
+            lines.push('| 路由路径 | 完整 URL |');
+            lines.push('|----------|----------|');
+            for (const item of data.routeFullUrls) {
+                lines.push('| ' + escapeMarkdown(item.path) + ' | ' + escapeMarkdown(item.url) + ' |');
             }
             lines.push('');
         }

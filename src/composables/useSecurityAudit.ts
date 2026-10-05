@@ -22,7 +22,7 @@ const auditError = ref('');
 const exportButtonText = ref('导出完整报告');
 const copyReportText = ref('复制报告');
 
-const { vueAnalysisResult } = useRouterAnalysis();
+const { vueAnalysisResult, routeListState } = useRouterAnalysis();
 const { apiExtractResult } = useApiExtract();
 const { latestAllInStatus } = useAllInMode();
 
@@ -108,10 +108,15 @@ function exportMarkdown(): void {
     }
 
     try {
+        const routeFullUrls = routeListState.value.kind === 'ready'
+            ? routeListState.value.list.items
+            : undefined;
+
         const markdown = generateFullReportMarkdown({
             pageUrl,
             allInStatus: latestAllInStatus.value,
             routerAnalysis: vueAnalysisResult.value,
+            routeFullUrls,
             apiExtract: apiExtractResult.value,
             securityAudit: auditReport.value
         });
@@ -134,10 +139,15 @@ async function copyReport(): Promise<void> {
     }
 
     try {
+        const routeFullUrls = routeListState.value.kind === 'ready'
+            ? routeListState.value.list.items
+            : undefined;
+
         const markdown = generateFullReportMarkdown({
             pageUrl,
             allInStatus: latestAllInStatus.value,
             routerAnalysis: vueAnalysisResult.value,
+            routeFullUrls,
             apiExtract: apiExtractResult.value,
             securityAudit: auditReport.value
         });
