@@ -44,7 +44,7 @@ function loadTheme(): ThemeMode {
     } catch {
         // ignore
     }
-    return 'geek';
+    return 'system';
 }
 
 /**
