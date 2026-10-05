@@ -2,13 +2,13 @@
 
 > 本项目基于 [King-Crack](https://github.com/chaojiwudichoubie1-arch/King-Crack.git) 进行的**二次开发**。
 
-适用于 Chrome / Chromium 的浏览器扩展（Manifest V3），面向**授权渗透测试与前端安全评估**：检测目标站点的 Vue 框架、枚举全部路由并生成可访问的完整 URL、绕过前端路由守卫、从源码与真实请求中提取 API 端点，并基于分析结果自动执行安全审计、导出 Markdown 报告。
+适用于 Chrome / Chromium 的浏览器扩展（Manifest V3），面向**授权渗透测试与前端安全评估**：自动识别目标站点的 Vue / React 框架、枚举全部路由并生成可访问的完整 URL、绕过前端路由守卫（Vue Router / React Router）、从源码与真实请求中提取 API 端点，并基于分析结果自动执行安全审计、导出 Markdown 报告。
 
 ## 功能特性
 
-- **Vue 框架与版本检测** —— 识别 Vue 2 / 3 与版本号，兼容延迟挂载的 SPA。
-- **路由枚举与完整 URL 生成** —— 兼容 Router 2/3/4，按 Hash / History 模式与基础路径生成可点击的完整 URL。
-- **梭哈模式（绕过前端路由守卫）** —— `document_start` 抢跑强制接管 Router，按站点白名单生效，实时回显拦截统计。
+- **前端框架与版本检测** —— 自动识别 Vue（2 / 3）与 React，输出版本号，兼容延迟挂载的 SPA。
+- **路由枚举与完整 URL 生成** —— Vue 兼容 Router 2/3/4；React 兼容 Router v6（data router）/v5，按 Hash / History 模式与基础路径生成可点击的完整 URL。
+- **梭哈模式（绕过前端路由守卫）** —— `document_start` 抢跑强制接管 Router：Vue 清除守卫并拦截 `push/replace`，React 拦截 `router.navigate`；按站点白名单生效，实时回显拦截统计。
 - **API 端点提取与导出** —— 汇总真实请求 / JS 源码静态提取 / Sourcemap 探测三类数据，标注未调用端点，可复制 JSON 或导出 TXT。
 - **安全审计** —— 复用上述结果，自动检测敏感 API、裸露路由与 Sourcemap 泄露，生成风险评级与修复建议，可导出综合 Markdown 报告。
 - **分析结果缓存** —— 按 URL 缓存分析结果、按站点记忆已打开的路由，重复打开秒出。
@@ -18,7 +18,7 @@
 
 ## 工作原理
 
-扩展同时运行在**三个 JavaScript 世界**（扩展后台 / 内容脚本 ISOLATED / 页面主世界 MAIN），`content.ts` 作为传话筒完成 `chrome.*` 与页面 Vue 内部对象之间的桥接。完整说明见 [整体架构：三世界模型](docs/architecture.md)。
+扩展同时运行在**三个 JavaScript 世界**（扩展后台 / 内容脚本 ISOLATED / 页面主世界 MAIN），`content.ts` 作为传话筒完成 `chrome.*` 与页面框架（Vue / React）内部对象之间的桥接。完整说明见 [整体架构：三世界模型](docs/architecture.md)。
 
 ## 项目结构
 
@@ -55,11 +55,11 @@ King-CrackX/                          # 标准 Vue 3 + Vite 项目布局
 │   │   └── dom.ts                    #   当前路由滚动定位
 │   ├── styles/popup.css              # 全局样式
 │   └── extension/                    # ★ 扩展注入脚本（无视图层，不使用 Vue）
-│       ├── types.d.ts                #   全局类型契约（Vue/Router 内部结构、消息协议）
+│       ├── types.d.ts                #   全局类型契约（Vue/React 内部结构、消息协议）
 │       ├── background.ts             #   Service Worker：按站点白名单动态注册/注销梭哈模式脚本
 │       ├── content.ts                #   内容脚本（ISOLATED world）：注入页面脚本、转发消息
-│       ├── detector.ts               #   注入页面（MAIN world）：Vue 检测 + Router 分析 + 温和守卫清除
-│       ├── all-in.ts                 #   注入页面（MAIN world）：document_start 前置强拦截
+│       ├── detector.ts               #   注入页面（MAIN world）：Vue/React 自动检测 + 路由枚举 + 温和守卫清除
+│       ├── all-in.ts                 #   注入页面（MAIN world）：document_start 前置强拦截（Vue Router + React Router）
 │       └── api-extractor.ts          #   注入页面（MAIN world）：真实请求 + 静态端点提取 + Sourcemap 探测
 ├── index.html                        # Vite 入口（= 扩展弹窗页面）
 ├── vite.config.ts                    # 统一构建配置（popup + 5 个注入脚本）
@@ -92,7 +92,7 @@ npm run build
 
 ## 使用
 
-1. 打开目标页面，点击扩展图标，自动检测 Vue 并分析路由。
+1. 打开目标页面，点击扩展图标，自动识别框架（Vue / React）并分析路由。
 2. 在**完整URL列表**中复制或直接打开目标路由。
 3. 需要绕过路由守卫时，打开**梭哈模式**开关并刷新页面（仅对当前站点生效）。
 4. 点击**提取API**获取端点清单，可复制或导出。
