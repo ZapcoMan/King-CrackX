@@ -37,7 +37,7 @@ export type RouteListState =
 
 const vueAnalysisResult = ref<RouterAnalysisResult | null>(null);
 const panelState = ref<RouterPanelState>('loading');
-const panelMessage = ref('正在分析Vue路由...');
+const panelMessage = ref('正在分析路由...');
 const lastOpenedRoute = ref('');
 /** 用户在各站点上手动选择过的 URL 模式（origin -> mode） */
 const basePathModeByOrigin = reactive<Record<string, string>>({});
@@ -107,8 +107,17 @@ const routeListState = computed<RouteListState>(() => {
     }
 });
 
-/** 当前 Vue 版本号（分析结果里没有时显示 Unknown） */
-const vueVersionText = computed(() => vueAnalysisResult.value?.vueVersion || 'Unknown');
+/** 当前命中的框架（'vue' | 'react'）；缺省视为 'vue'（兼容旧缓存与旧消息） */
+const detectedFramework = computed<FrameworkKind>(() => vueAnalysisResult.value?.framework || 'vue');
+
+/** 当前框架版本号（按 framework 取对应字段，缺失时显示 Unknown） */
+const vueVersionText = computed(() => {
+    const result = vueAnalysisResult.value;
+    if (!result) {
+        return 'Unknown';
+    }
+    return (detectedFramework.value === 'react' ? result.reactVersion : result.vueVersion) || 'Unknown';
+});
 
 /** 切换到错误态 */
 function showError(message: string): void {
@@ -148,7 +157,7 @@ function requestAnalysis({ preserveUi = false, forceRefresh = true }: { preserve
     }
 
     if (!preserveUi || !vueAnalysisResult.value) {
-        showLoading('正在分析Vue路由...');
+        showLoading('正在分析路由...');
     }
 
     chrome.tabs.sendMessage(tabId, {
@@ -171,7 +180,7 @@ function requestAnalysis({ preserveUi = false, forceRefresh = true }: { preserve
 function handleDetectionResult(result: VueDetectionResult): void {
     if (result.detected) {
         if (!vueAnalysisResult.value) {
-            showLoading('正在分析Vue路由...');
+            showLoading('正在分析路由...');
         }
         return;
     }
@@ -229,7 +238,7 @@ function isCurrentRoute(url: string): boolean {
 
 /** 初始化：读缓存 → 请求分析 */
 function initRouterAnalysis(): void {
-    showLoading('正在分析Vue路由...');
+    showLoading('正在分析路由...');
     lastOpenedRoute.value = readLastOpenedRoute(currentTabUrl.value);
 
     const restored = restoreFromCache(currentTabUrl.value);
@@ -242,6 +251,7 @@ export function useRouterAnalysis() {
         vueAnalysisResult,
         panelState,
         panelMessage,
+        detectedFramework,
         vueVersionText,
         routeListState,
         lastOpenedRoute,

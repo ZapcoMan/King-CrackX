@@ -1,11 +1,16 @@
 /**
- * King-CrackX —— Vue 检测与路由分析器（MAIN world）
+ * King-CrackX —— 前端框架检测与路由分析器（MAIN world）
  *
- * 由 content.js 按需注入到页面主世界，用于：
- *   1. 检测页面是否使用 Vue，并识别版本（Vue 2 / 3）
- *   2. 定位 Vue Router 实例，枚举全部路由（含嵌套子路由）
- *   3. 清除路由守卫、改写鉴权 meta，实现前端路由绕过
+ * 由 content.js 按需注入到页面主世界，自动识别页面所用框架（Vue / React），
+ * 并按命中的框架走对应的分析流程，用于：
+ *   1. 检测页面是否使用 Vue 或 React，并识别版本（Vue 2 / 3；React 17 / 18 / 19）
+ *   2. 定位路由实例（Vue Router / React Router），枚举全部路由（含嵌套子路由）
+ *   3. 清除路由守卫、改写鉴权 meta，实现前端路由绕过（Vue；React 由 all-in.js 强接管）
  *   4. 分析页面链接，推测 Router 基础路径
+ *
+ * 无论命中哪个框架，回传消息类型与 Vue 版本保持一致（VUE_DETECTION_RESULT /
+ * VUE_ROUTER_ANALYSIS_RESULT），仅在结果对象上多带一个 framework 字段，
+ * 因此 content.js / popup 的中转与渲染逻辑无需为大改。
  *
  * 结果通过 window.postMessage 回传给 content.js 中转。
  */
@@ -136,10 +141,10 @@
     // ======== 消息发送函数 ========
 
     /**
-     * 上报 Vue 检测结果。
-     * @param result - 形如 { detected: boolean, method: string }
+     * 上报框架检测结果。
+     * @param result - 形如 { detected: boolean, method: string, framework?: 'vue' | 'react' }
      */
-    function sendResult(result: Pick<VueDetectionResult, 'detected' | 'method'>): void {
+    function sendResult(result: Pick<VueDetectionResult, 'detected' | 'method' | 'framework'>): void {
         window.postMessage({
             type: 'VUE_DETECTION_RESULT',
             result: result
@@ -221,7 +226,9 @@
                 result: {
                     vueDetected: result?.vueDetected || false,
                     routerDetected: result?.routerDetected || false,
+                    framework: result?.framework || 'vue',
                     vueVersion: result?.vueVersion || 'Unknown',
+                    reactVersion: result?.reactVersion || 'Unknown',
                     modifiedRoutes: result?.modifiedRoutes || [],
                     error: 'Serialization failed',
                     allRoutes: []
@@ -241,18 +248,10 @@
         }, '*');
     }
 
-    // ======== Vue检测函数 ========
+    // ======== Vue 检测函数 ========
 
-    /**
-     * 简单 Vue 检测：从 document.body 起查找 Vue 根节点。
-     * 作为延迟检测机制的探测入口，只判断「有没有」，不做完整分析。
-     *
-     * @returns Vue 根节点；未检测到时为 null
-     */
-    function simpleVueDetection(): VueElementLike | null {
-        const vueRoot = findVueRoot(document.body);
-        return vueRoot;
-    }
+    // 说明：框架探测入口已统一到文件后部的 detectFramework()（先 Vue 后 React）。
+    // 这里保留 Vue 根实例的定位实现，供 detectFramework 与 performFullAnalysis 复用。
 
     // ======== Vue Router相关函数 ========
 
@@ -814,6 +813,7 @@
     function performFullAnalysis(): RouterAnalysisResult {
         const result: FullRouterAnalysis = {
             vueDetected: false,
+            framework: 'vue',
             vueVersion: null,
             routerDetected: false,
             logs: [],
@@ -915,16 +915,477 @@
         }
     }
 
+    // ======== React 检测与路由分析 ========
+
+    /**
+     * 在元素上查找以指定前缀开头的属性 key。
+     *
+     * React 会在 DOM 节点上挂形如 `__reactFiber$<随机后缀>`、
+     * `__reactContainer$<随机后缀>`、`__reactProps$<随机后缀>` 的属性，
+     * 后缀是每个构建生成的随机字符串，因此只能按前缀匹配，不能写死全名。
+     *
+     * @param element - 待探测的 DOM 元素
+     * @param prefix - 属性名前缀，如 '__reactContainer'
+     * @returns 命中的属性名；未命中时为空字符串
+     */
+    function findKeyByPrefix(element: ReactElementLike, prefix: string): string {
+        for (const key in element) {
+            if (key.indexOf(prefix) === 0) {
+                return key;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * 广度优先扫描 DOM，定位 React 挂载容器。
+     *
+     * 判定依据（任一命中即认为是 React 挂载点）：
+     *   - `__reactContainer$xxx` ：React 18+ createRoot 挂在根容器上的标记
+     *   - `_reactRootContainer`  ：React 17 及以下 ReactDOM.render 的挂载标记
+     *   - `__reactFiber$xxx`     ：任意节点上的 Fiber 引用（兜底）
+     *
+     * 与 Vue 一样采用广度优先，优先在浅层命中，并用 maxDepth 防止超深 DOM 失控。
+     *
+     * @param root - 遍历起点，通常为 document.body
+     * @param maxDepth - 最大遍历深度
+     * @returns React 挂载元素；未找到时为 null
+     */
+    function findReactRoot(root: Node, maxDepth: number = 1000): ReactElementLike | null {
+        const queue: Array<{ node: Node; depth: number }> = [{ node: root, depth: 0 }];
+        while (queue.length) {
+            const { node, depth } = queue.shift() as { node: Node; depth: number };
+            if (depth > maxDepth) break;
+
+            const element = node as ReactElementLike;
+            if (element.nodeType === 1) {
+                // 命中任一 React 标记即认为找到了挂载点
+                if (findKeyByPrefix(element, '__reactContainer') ||
+                    element._reactRootContainer ||
+                    findKeyByPrefix(element, '__reactFiber')) {
+                    return element;
+                }
+
+                if (node.childNodes) {
+                    for (let i = 0; i < node.childNodes.length; i++) {
+                        queue.push({ node: node.childNodes[i], depth: depth + 1 });
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从 React 挂载元素取出根 Fiber。
+     *
+     * 两条版本路径：
+     *   - React 18+：容器上的 `__reactContainer$xxx` 直接就是（或关联）根 Fiber
+     *   - React ≤17：`_reactRootContainer._internalRoot.current` 是当前根 Fiber
+     *
+     * @param element - React 挂载元素
+     * @returns 根 Fiber；取不到时为 null
+     */
+    function getReactRootFiber(element: ReactElementLike): ReactFiberLike | null {
+        try {
+            const containerKey = findKeyByPrefix(element, '__reactContainer');
+            if (containerKey) {
+                const container = element[containerKey] as ReactFiberLike | null;
+                if (container) {
+                    // __reactContainer 可能指向 HostRoot fiber，也可能需要经 current 下钻
+                    return container.current || container;
+                }
+            }
+
+            const legacyRoot = element._reactRootContainer;
+            if (legacyRoot) {
+                const internalRoot = (legacyRoot as { _internalRoot?: { current?: ReactFiberLike } })._internalRoot;
+                if (internalRoot?.current) {
+                    return internalRoot.current;
+                }
+                // 旧结构里 _reactRootContainer 本身可能带 current
+                return (legacyRoot as { current?: ReactFiberLike }).current || null;
+            }
+
+            // 兜底：任意 __reactFiber$ 引用，沿 return 上溯到根
+            const fiberKey = findKeyByPrefix(element, '__reactFiber');
+            if (fiberKey) {
+                let fiber = element[fiberKey] as ReactFiberLike | null;
+                while (fiber && fiber.return) {
+                    fiber = fiber.return;
+                }
+                return fiber;
+            }
+        } catch (e) {
+            handleError(e, 'getReactRootFiber');
+        }
+        return null;
+    }
+
+    /**
+     * 推断 React 版本号。
+     *
+     * 按可信度依次尝试：
+     *   1. 全局 window.React.version（UMD/全局构建才有）
+     *   2. React DevTools 钩子 renderers 上携带的 version 字段
+     *   3. 依据挂载标记做「大版本级别」的启发式判断：
+     *      - 存在 `__reactContainer` → 标记为 Concurrent(18+)
+     *      - 存在 `_reactRootContainer` → 标记为 Legacy(≤17)
+     *
+     * React 默认打包不会把版本暴露到 window，因此第 3 步是常见落点；
+     * 拿不到精确版本时返回可辨识的启发式标签，而非直接 'unknown'。
+     *
+     * @param element - React 挂载元素
+     * @returns 版本号字符串或启发式标签
+     */
+    function getReactVersion(element: ReactElementLike): string {
+        try {
+            if (window.React && window.React.version) {
+                return window.React.version;
+            }
+
+            const hook = window.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+            const renderers = hook?.renderers as Record<string, { version?: string }> | undefined;
+            if (renderers) {
+                const keys = Object.keys(renderers);
+                for (let i = keys.length - 1; i >= 0; i--) {
+                    const version = renderers[keys[i]]?.version;
+                    if (version) {
+                        return version;
+                    }
+                }
+            }
+        } catch (e) {
+            handleError(e, 'getReactVersion');
+        }
+
+        // 启发式：按挂载标记给出大版本范围标签
+        if (findKeyByPrefix(element, '__reactContainer')) {
+            return '18+ (Concurrent)';
+        }
+        if (element._reactRootContainer) {
+            return '≤17 (Legacy)';
+        }
+        return 'unknown';
+    }
+
+    /**
+     * 判断一个对象是否「像一个 React Router data router 实例」。
+     *
+     * v6.4+ 的 create*Router 返回对象同时具备：
+     *   - routes：路由配置数组（原始定义）
+     *   - navigate：编程式跳转方法
+     *   - state：含 matches / navigation 的运行时状态
+     * 三者同时命中即认定，误判概率极低。
+     *
+     * @param candidate - 待判定的未知对象
+     * @returns 是否为 data router 实例
+     */
+    function isReactRouterLike(candidate: unknown): candidate is ReactRouterLike {
+        if (!candidate || typeof candidate !== 'object') {
+            return false;
+        }
+        const obj = candidate as ReactRouterLike;
+        return Array.isArray(obj.routes) &&
+            typeof obj.navigate === 'function' &&
+            !!(obj.state && typeof obj.state === 'object');
+    }
+
+    /**
+     * 遍历 Fiber 树，尝试挖出 React Router 实例。
+     *
+     * data router 实例会作为某个组件的 props / state / context value 存在于
+     * Fiber 节点上，因此对每个节点检查以下位置：
+     *   - stateNode（类实例）
+     *   - memoizedProps（含 RouterProvider 的 router 属性）
+     *   - memoizedState（Hook 链表，逐项检查其 memoizedState 值）
+     *
+     * 为避免超深页面卡住，设 6000 节点上限；用 visited 集合切断循环引用。
+     *
+     * @param rootFiber - 根 Fiber
+     * @returns 找到的 router 实例；未找到时为 null
+     */
+    function detectReactRouterObject(rootFiber: ReactFiberLike | null): ReactRouterLike | null {
+        if (!rootFiber) {
+            return null;
+        }
+
+        const queue: ReactFiberLike[] = [rootFiber];
+        const visited = new Set<ReactFiberLike>();
+        let scanned = 0;
+
+        /** 从若干候选值里判定并取出 router */
+        const pickRouter = (...candidates: unknown[]): ReactRouterLike | null => {
+            for (const candidate of candidates) {
+                if (isReactRouterLike(candidate)) {
+                    return candidate;
+                }
+                // RouterProvider 把 router 放在 props.router 上
+                if (candidate && typeof candidate === 'object') {
+                    const wrapped = (candidate as { router?: unknown }).router;
+                    if (isReactRouterLike(wrapped)) {
+                        return wrapped;
+                    }
+                }
+            }
+            return null;
+        };
+
+        while (queue.length && scanned < 6000) {
+            const fiber = queue.shift() as ReactFiberLike;
+            if (!fiber || visited.has(fiber)) continue;
+            visited.add(fiber);
+            scanned += 1;
+
+            // 常见挂载点：props.router / 节点本身 / stateNode
+            const found = pickRouter(
+                fiber.memoizedProps,
+                (fiber.memoizedProps as { router?: unknown } | undefined)?.router,
+                fiber.stateNode
+            );
+            if (found) {
+                return found;
+            }
+
+            // 遍历 Hook 链表（函数组件的 useState/useContext 值都挂在这里）
+            let hook = fiber.memoizedState as { memoizedState?: unknown; next?: unknown } | null;
+            let guard = 0;
+            while (hook && guard < 100) {
+                const viaHook = pickRouter(hook.memoizedState);
+                if (viaHook) {
+                    return viaHook;
+                }
+                hook = hook.next as typeof hook;
+                guard += 1;
+            }
+
+            if (fiber.child) queue.push(fiber.child);
+            if (fiber.sibling) queue.push(fiber.sibling);
+        }
+
+        return null;
+    }
+
+    /**
+     * 递归展开 data router 的 routes 配置为完整路径清单。
+     *
+     * React Router v6.4+ 的子路由 path 是**相对**的（无前导斜杠，可能缺省），
+     * 需要与父路径拼接；index 路由与 path 缺省的 layout 路由沿用父路径。
+     * 参数段（:id）原样保留，与 Vue 枚举行为保持一致。
+     *
+     * @param routes - 路由配置数组
+     * @param basePath - 父级已拼接好的绝对路径
+     * @param out - 结果累加容器
+     */
+    function flattenReactRoutes(
+        routes: ReactRouteConfigLike[] | undefined,
+        basePath: string,
+        out: RouteEntry[]
+    ): void {
+        if (!Array.isArray(routes)) return;
+
+        routes.forEach(route => {
+            if (!route || typeof route !== 'object') return;
+
+            const rawPath = typeof route.path === 'string' ? route.path : '';
+            let fullPath: string;
+
+            if (!rawPath || route.index) {
+                // index 路由或无 path 的布局路由：沿用父路径
+                fullPath = basePath || '/';
+            } else if (rawPath.startsWith('/')) {
+                // 绝对路径（极少见于 children）：直接使用
+                fullPath = rawPath;
+            } else {
+                // 相对路径：与父路径拼接
+                const parent = basePath === '/' ? '' : basePath;
+                fullPath = `${parent}/${rawPath}`;
+            }
+
+            // 归一化：确保以 / 开头、去掉重复斜杠
+            if (!fullPath.startsWith('/')) {
+                fullPath = '/' + fullPath;
+            }
+            fullPath = fullPath.replace(/\/\/+/g, '/');
+
+            out.push({
+                name: typeof route.id === 'string' ? route.id : undefined,
+                path: fullPath,
+                meta: (route as { handle?: Record<string, any> }).handle ? (route.handle as Record<string, any>) : {}
+            });
+
+            const children = route.children || route.routes;
+            if (Array.isArray(children) && children.length) {
+                flattenReactRoutes(children, fullPath, out);
+            }
+        });
+    }
+
+    /**
+     * 从运行时状态尽力收集 React 路由路径（data router 枚举失败时的兜底）。
+     *
+     * 覆盖两个来源：
+     *   1. router.state.matches —— 当前匹配链上的 pathname（至少拿到已激活路径）
+     *   2. window.__REACT_ROUTER_DATA__ —— v6.4+ SSR/prefetch 注入的路由数据
+     *
+     * @param router - 已发现的 router（可为 null）
+     * @returns 收集到的路由条目
+     */
+    function collectReactRoutesFromRuntime(router: ReactRouterLike | null): RouteEntry[] {
+        const list: RouteEntry[] = [];
+
+        try {
+            if (router && Array.isArray(router.state?.matches)) {
+                router.state!.matches.forEach(match => {
+                    if (match && typeof match.pathname === 'string') {
+                        list.push({ name: match.routeId, path: match.pathname, meta: {} });
+                    }
+                });
+            }
+        } catch (e) {
+            handleError(e, 'collectReactRoutesFromRuntime:matches');
+        }
+
+        return list;
+    }
+
+    /**
+     * 执行完整的 React / React Router 分析。
+     *
+     * 与 performFullAnalysis（Vue）保持同样的结果结构，仅 framework 字段不同：
+     *   1. 取出根 Fiber，读版本
+     *   2. 从 Fiber 树发现 data router，成功则展开 routes 配置树
+     *   3. 发现失败则退化为运行时状态收集（routerDetected 相应置否）
+     *   4. 复用页面链接前缀分析推测候选基础路径
+     *
+     * React 没有集中的守卫/meta，本函数只做**只读枚举**；
+     * 鉴权绕过统一交由 all-in.js 前置接管。
+     *
+     * @param element - React 挂载元素
+     * @returns 分析结果
+     */
+    function performReactAnalysis(element: ReactElementLike): RouterAnalysisResult {
+        const result: RouterAnalysisResult & {
+            framework: FrameworkKind;
+            reactVersion: string | null;
+            allRoutes: RouteEntry[];
+        } = {
+            vueDetected: false,
+            routerDetected: false,
+            framework: 'react',
+            vueVersion: null,
+            reactVersion: null,
+            modifiedRoutes: [],
+            allRoutes: [],
+            routerBase: '',
+            pageAnalysis: {
+                detectedBasePath: '',
+                commonPrefixes: []
+            },
+            currentPath: window.location.pathname
+        };
+
+        try {
+            const rootFiber = getReactRootFiber(element);
+            result.reactVersion = getReactVersion(element);
+            console.log('✅ React 版本：', result.reactVersion);
+
+            const router = detectReactRouterObject(rootFiber);
+
+            if (router) {
+                result.routerDetected = true;
+                flattenReactRoutes(router.routes, '', result.allRoutes);
+
+                // 运行时状态兜底：把 matches 里的当前路径也纳入（去重交给 popup）
+                if (!result.allRoutes.length) {
+                    result.allRoutes = collectReactRoutesFromRuntime(router);
+                }
+                console.log('🔍 React Router data router 已定位，路由数：', result.allRoutes.length);
+            } else {
+                result.allRoutes = collectReactRoutesFromRuntime(null);
+                console.warn('🚫 未定位到可枚举的 React Router 实例（可能是声明式 <Routes> 或是版本无法静态枚举）');
+            }
+
+            // 复用页面链接分析，得到候选基础路径
+            result.pageAnalysis = analyzePageLinks();
+            if (result.pageAnalysis.detectedBasePath) {
+                console.log('🔍 从页面链接检测到基础路径:', result.pageAnalysis.detectedBasePath);
+            }
+
+            return result;
+        } catch (error) {
+            handleError(error, 'performReactAnalysis', true);
+            return {
+                vueDetected: false,
+                routerDetected: false,
+                framework: 'react',
+                error: String(error)
+            };
+        }
+    }
+
+    // ======== 统一框架检测入口 ========
+
+    /**
+     * 统一探测页面框架：先 Vue，后 React。
+     *
+     * 顺序考量：Vue 的根实例集中在挂载点、探测成本低；
+     * React 需要扫描 DOM 找 Fiber 标记、成本相对高，因此作为次选。
+     * 微前端等同时存在两者的场景下，优先返回 Vue（与既有行为兼容）。
+     *
+     * @returns 命中的框架及对应元素；均未命中时为 null
+     */
+    function detectFramework(): { framework: FrameworkKind; vueRoot?: VueElementLike; reactRoot?: ReactElementLike } | null {
+        const vueRoot = findVueRoot(document.body);
+        if (vueRoot) {
+            return { framework: 'vue', vueRoot };
+        }
+
+        const reactRoot = findReactRoot(document.body);
+        if (reactRoot) {
+            return { framework: 'react', reactRoot };
+        }
+
+        return null;
+    }
+
     // ======== 延迟检测机制 ========
 
     /**
-     * 延迟检测机制：应对 Vue 实例延迟挂载的场景。
+     * 依据命中的框架执行分析并回传：先报检测结果，再延迟 50ms 报完整分析。
      *
-     * 部分页面的 Vue 应用在首屏后才初始化（如等待接口返回、异步路由），
-     * 立即检测会误判为「未使用 Vue」，因此按 0ms -> 300ms -> 600ms
+     * 抽出为函数，是为了让「立即检测」和「延迟检测重试」两条路径复用同一套逻辑，
+     * 保持消息时序一致（popup 依赖这个时序把状态从 loading 推进到 ready）。
+     *
+     * @param hit - detectFramework 的命中结果
+     * @param methodLabel - 检测方式描述，随检测结果一并上报
+     */
+    function analyzeAndReport(
+        hit: { framework: FrameworkKind; vueRoot?: VueElementLike; reactRoot?: ReactElementLike },
+        methodLabel: string
+    ): void {
+        sendResult({
+            detected: true,
+            method: methodLabel,
+            framework: hit.framework
+        });
+
+        setTimeout(() => {
+            const analysisResult = hit.framework === 'vue'
+                ? performFullAnalysis()
+                : performReactAnalysis(hit.reactRoot as ReactElementLike);
+            sendRouterResult(analysisResult);
+        }, 50);
+    }
+
+    /**
+     * 延迟检测机制：应对框架实例延迟挂载的场景。
+     *
+     * 部分页面的 Vue / React 应用在首屏后才初始化（如等待接口返回、异步路由），
+     * 立即检测会误判为「未使用框架」，因此按 0ms -> 300ms -> 600ms
      * 三级延迟重试，最多 3 次。
      *
-     * 一旦探测到 Vue 实例，便与立即检测路径保持一致：
+     * 一旦探测到框架实例，便与立即检测路径保持一致：
      * 先上报检测结果，再延迟 50ms 执行完整分析并回传。
      *
      * @param delay - 本次延迟毫秒数
@@ -941,19 +1402,11 @@
         }
 
         setTimeout(() => {
-            const vueRoot = simpleVueDetection();
+            const hit = detectFramework();
 
-            if (vueRoot) {
-                // 延迟挂载场景下找到Vue实例：与立即检测路径保持一致
-                sendResult({
-                    detected: true,
-                    method: `Delayed detection (${delay}ms)`
-                });
-
-                setTimeout(() => {
-                    const analysisResult = performFullAnalysis();
-                    sendRouterResult(analysisResult);
-                }, 50);
+            if (hit) {
+                // 延迟挂载场景下找到实例：与立即检测路径保持一致
+                analyzeAndReport(hit, `Delayed detection (${delay}ms)`);
             } else if (delay === 0) {
                 delayedDetection(300, retryCount + 1);    // 第1次重试：300ms
             } else if (delay === 300) {
@@ -969,23 +1422,15 @@
 
     // ======== 主执行逻辑 ========
     // 脚本注入后立即尝试检测：
-    //   - 命中 Vue 实例：先上报检测结果，再延迟 50ms 执行完整分析
+    //   - 命中框架实例（Vue 或 React）：先上报检测结果，再延迟 50ms 执行完整分析
     //     （留出时间让框架完成内部初始化，避免读取到不完整的路由表）
     //   - 未命中：转入延迟检测流程，按 0/300/600ms 重试
     //   - 抛出异常：记录后直接以 500ms 延迟重试
     try {
-        const vueRoot = simpleVueDetection();
+        const hit = detectFramework();
 
-        if (vueRoot) {
-            sendResult({
-                detected: true,
-                method: 'Immediate detection'
-            });
-
-            setTimeout(() => {
-                const analysisResult = performFullAnalysis();
-                sendRouterResult(analysisResult);
-            }, 50);
+        if (hit) {
+            analyzeAndReport(hit, 'Immediate detection');
         } else {
             delayedDetection(0, 0); // 添加初始重试计数
         }

@@ -1,9 +1,9 @@
 {
   "name": "king-crackx",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "King-CrackX —— Vue 路由守卫绕过 / API 端点提取 Chrome 扩展（Vue 3 + Vite + TypeScript）",
+  "description": "King-CrackX —— Vue/React 路由守卫绕过 / API 端点提取 Chrome 扩展（Vue 3 + Vite + TypeScript）",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -1,15 +1,18 @@
 /**
  * King-CrackX —— 梭哈模式（MAIN world，document_start 前置注入）
  *
- * 目标：在目标页面加载业务代码之前抢跑，强制接管 Vue Router，
- * 使前端路由守卫与鉴权跳转全部失效，从而直接访问受保护的路由。
+ * 目标：在目标页面加载业务代码之前抢跑，强制接管前端路由（Vue / React），
+ * 使路由守卫与鉴权跳转失效，从而直接访问受保护的路由。
  *
  * 拦截三个层面：
- *   1. 守卫注册层 —— 拦截 beforeEach/beforeResolve/afterEach，
+ *   1. 守卫注册层 —— 拦截 Vue 的 beforeEach/beforeResolve/afterEach，
  *      并 hook Array.prototype.push 阻断守卫被塞进内部容器
- *   2. 存量守卫层 —— 清空各版本 Router 内部的守卫容器
- *   3. 跳转层     —— 拦截 router.push/replace/go、history.*、
- *      location.assign/replace 与 window.close，防止被踢回登录页
+ *   2. 存量守卫层 —— 清空各版本 Vue Router 内部的守卫容器
+ *   3. 跳转层     —— 拦截 Vue 的 router.push/replace/go、React 的 router.navigate、
+ *      history.*、location.assign/replace 与 window.close，防止被踢回登录页
+ *
+ * React Router v6 没有集中式守卫，鉴权跳转统一经 router.navigate，
+ * 因此 React 侧的接管聚焦「跳转层」；扫描时先探 Vue、未命中再探 React。
  *
  * 由 background.js 按站点白名单动态注册，仅对用户开启过的站点生效。
  */
@@ -468,13 +471,172 @@
     }
 
     /**
-     * 扫描整个 DOM 树，找出所有 Vue Router 实例并逐一接管。
+     * 接管一个 React Router（data router）实例。
+     *
+     * React Router v6 没有集中式守卫，鉴权跳转普遍通过 <Navigate> 组件、
+     * useNavigate + useEffect、或 loader 抛重定向实现，最终都会调用
+     * router.navigate。把 navigate 替换为拦截器即可阻止「被踢回登录页」，
+     * 与 Vue 侧接管 router.push/replace 的策略一致。
+     *
+     * 浏览器层（history/location）的跳转拦截由 installBrowserJumpBlockers 统一处理，
+     * 与框架无关，React 同样受益，此处不再重复。
+     *
+     * @param router - 疑似 React Router 实例（结构不可信，需运行时校验）
+     * @returns true 表示本次成功接管；false 表示无效或已接管过
+     */
+    function patchReactRouter(router: unknown): boolean {
+        if (!router || typeof router !== 'object' || patchedRouters.has(router)) {
+            return false;
+        }
+
+        const target = router as ReactRouterLike;
+        if (typeof target.navigate !== 'function') {
+            return false;
+        }
+
+        patchedRouters.add(router);
+
+        // navigate 在 v6 返回 void；返回 false 作为「跳转未发生」的保守信号
+        const blocker = function (..._args: any[]): false {
+            state.routerJumpBlocked += 1;
+            mark('已拦截 router.navigate');
+            return false;
+        };
+        maskToString(blocker, 'navigate');
+        defineValue(target, 'navigate', blocker);
+
+        state.routersPatched += 1;
+        mark('已接管 React Router');
+        return true;
+    }
+
+    /**
+     * 在元素上查找以指定前缀开头的属性 key（React 内部标记带随机后缀）。
+     *
+     * @param element - 待探测的 DOM 元素
+     * @param prefix - 属性名前缀
+     * @returns 命中的属性名；未命中时为空字符串
+     */
+    function findReactKey(element: ReactElementLike, prefix: string): string {
+        for (const key in element) {
+            if (key.indexOf(prefix) === 0) {
+                return key;
+            }
+        }
+        return '';
+    }
+
+    /**
+     * 判断一个对象是否「像 data router」：同时具备 routes 数组 + navigate 方法 + state 对象。
+     *
+     * @param candidate - 待判定的未知对象
+     * @returns 是否为 React Router 实例
+     */
+    function isReactRouterLike(candidate: unknown): candidate is ReactRouterLike {
+        if (!candidate || typeof candidate !== 'object') {
+            return false;
+        }
+        const obj = candidate as ReactRouterLike;
+        return Array.isArray(obj.routes) &&
+            typeof obj.navigate === 'function' &&
+            !!(obj.state && typeof obj.state === 'object');
+    }
+
+    /**
+     * 从一个 React 挂载元素出发，遍历 Fiber 树挖出 router 实例。
+     *
+     * 与 detector.ts 的发现逻辑一致，但这里只做「找到即可」，不展开路由。
+     * 上限 6000 节点，visited 切断循环。
+     *
+     * @param element - React 挂载元素
+     * @returns 发现的 router 实例；未找到时为 null
+     */
+    function findReactRouterFromElement(element: ReactElementLike): ReactRouterLike | null {
+        try {
+            let rootFiber: ReactFiberLike | null = null;
+
+            const containerKey = findReactKey(element, '__reactContainer');
+            if (containerKey) {
+                const container = element[containerKey] as ReactFiberLike | null;
+                rootFiber = container?.current || container || null;
+            }
+
+            if (!rootFiber && element._reactRootContainer) {
+                const internalRoot = (element._reactRootContainer as { _internalRoot?: { current?: ReactFiberLike } })._internalRoot;
+                rootFiber = internalRoot?.current || null;
+            }
+
+            if (!rootFiber) {
+                const fiberKey = findReactKey(element, '__reactFiber');
+                if (fiberKey) {
+                    let fiber = element[fiberKey] as ReactFiberLike | null;
+                    while (fiber && fiber.return) {
+                        fiber = fiber.return;
+                    }
+                    rootFiber = fiber;
+                }
+            }
+
+            if (!rootFiber) {
+                return null;
+            }
+
+            const queue: ReactFiberLike[] = [rootFiber];
+            const visited = new Set<ReactFiberLike>();
+            let scanned = 0;
+
+            const pick = (...candidates: unknown[]): ReactRouterLike | null => {
+                for (const candidate of candidates) {
+                    if (isReactRouterLike(candidate)) return candidate;
+                    if (candidate && typeof candidate === 'object') {
+                        const wrapped = (candidate as { router?: unknown }).router;
+                        if (isReactRouterLike(wrapped)) return wrapped;
+                    }
+                }
+                return null;
+            };
+
+            while (queue.length && scanned < 6000) {
+                const fiber = queue.shift() as ReactFiberLike;
+                if (!fiber || visited.has(fiber)) continue;
+                visited.add(fiber);
+                scanned += 1;
+
+                const found = pick(
+                    fiber.memoizedProps,
+                    (fiber.memoizedProps as { router?: unknown } | undefined)?.router,
+                    fiber.stateNode
+                );
+                if (found) return found;
+
+                let hook = fiber.memoizedState as { memoizedState?: unknown; next?: unknown } | null;
+                let guard = 0;
+                while (hook && guard < 100) {
+                    const viaHook = pick(hook.memoizedState);
+                    if (viaHook) return viaHook;
+                    hook = hook.next as typeof hook;
+                    guard += 1;
+                }
+
+                if (fiber.child) queue.push(fiber.child);
+                if (fiber.sibling) queue.push(fiber.sibling);
+            }
+        } catch (error) {
+            return null;
+        }
+
+        return null;
+    }
+
+    /**
+     * 扫描整个 DOM 树，找出所有 Vue / React Router 实例并逐一接管。
      *
      * 实现要点：
      *   - 广度优先遍历（队列），先在浅层命中能更快完成接管
-     *   - 用 visited 集合防止重复访问（Vue 会在元素上挂引用，可能形成环）
+     *   - 用 visited 集合防止重复访问（框架会在元素上挂引用，可能形成环）
      *   - 上限 8000 个节点，避免超大页面导致长时间占用主线程
      *   - 每次扫描都顺带尝试 patch 原型，覆盖动态创建的实例
+     *   - 同一元素先探测 Vue，未命中再探测 React（微前端两者共存时 Vue 优先）
      */
     function scanRouters(): void {
         patchVueRouterPrototype();
@@ -499,9 +661,17 @@
 
             // 只探测元素节点（nodeType 1）
             if (node.nodeType === 1) {
-                const router = findVueRouterFromElement(node as VueElementLike);
-                if (router) {
-                    patchRouter(router);
+                const element = node as VueElementLike & ReactElementLike;
+
+                const vueRouter = findVueRouterFromElement(element);
+                if (vueRouter) {
+                    patchRouter(vueRouter);
+                } else {
+                    // Vue 未命中时才尝试 React，避免对每个节点都跑成本较高的 Fiber 遍历
+                    const reactRouter = findReactRouterFromElement(element);
+                    if (reactRouter) {
+                        patchReactRouter(reactRouter);
+                    }
                 }
 
                 if (node.childNodes && node.childNodes.length) {

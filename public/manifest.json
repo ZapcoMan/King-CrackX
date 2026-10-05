@@ -1,7 +1,7 @@
 {
   "name": "King-Crack",
-  "version": "0.1",
-  "description": "检测是否存在VUE框架并且强制注入路由守卫、提取API",
+  "version": "0.3.0",
+  "description": "自动识别 VUE/REACT 框架，枚举路由、强制绕过前端路由守卫、提取API",
   "manifest_version": 3,
     "action": {
     "default_popup": "index.html",

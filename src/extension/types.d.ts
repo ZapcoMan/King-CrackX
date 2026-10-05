@@ -79,12 +79,70 @@ interface VueRouterLike {
     [key: string]: unknown;
 }
 
+/* ==================== React 内部结构（最小可用子集） ==================== */
+
+/**
+ * React Fiber 节点。
+ * 只声明本插件会读取的字段；Fiber 是双向链表 + 树结构，
+ * 内部字段（return / sibling / child / stateNode / memoizedState）均为未公开实现，
+ * 不同 React 大版本形态略有差异，因此全部按需可选并做运行时校验。
+ */
+interface ReactFiberLike {
+    tag?: number;
+    type?: unknown;
+    stateNode?: unknown;
+    child?: ReactFiberLike | null;
+    sibling?: ReactFiberLike | null;
+    return?: ReactFiberLike | null;
+    alternate?: ReactFiberLike | null;
+    memoizedState?: unknown;
+    [key: string]: unknown;
+}
+
+/** 挂载了 React 内部引用的 DOM 元素（各版本标记属性不同，故并列声明） */
+interface ReactElementLike extends Element {
+    /** React 18+ createRoot 挂在容器上的 key（后缀随机），值为根 Fiber */
+    [key: string]: unknown;
+}
+
+/**
+ * 发现到的 React Router 对象（主要是 v6.4+ data router）。
+ * 用索引签名兜底：不同版本内部字段位置不一致，需动态遍历。
+ */
+interface ReactRouterLike {
+    routes?: ReactRouteConfigLike[];
+    dataRoutes?: unknown;
+    navigate?: (...args: any[]) => unknown;
+    state?: {
+        navigation?: unknown;
+        matches?: Array<{ routeId?: string; pathname?: string }>;
+        location?: unknown;
+    };
+    __vuecrack_guard_props__?: string[];
+    [key: string]: unknown;
+}
+
+/** React Router 路由配置（v6 data route / v5 Route 配置的公共部分） */
+interface ReactRouteConfigLike {
+    path?: string;
+    id?: string;
+    index?: boolean;
+    children?: ReactRouteConfigLike[];
+    routes?: ReactRouteConfigLike[];
+    [key: string]: unknown;
+}
+
 /* ==================== 检测 / 路由分析结果 ==================== */
 
-/** 页面脚本回传给 content.ts 的 Vue 检测结果 */
+/** 页面使用的框架类型 */
+type FrameworkKind = 'vue' | 'react';
+
+/** 页面脚本回传给 content.ts 的框架检测结果（Vue / React 共用同一结构） */
 interface VueDetectionResult {
     detected: boolean;
     method: string;
+    /** 命中的框架；缺省视为 'vue'（向后兼容旧缓存与旧消息） */
+    framework?: FrameworkKind;
     details?: Record<string, unknown>;
     errorMsg?: string;
 }
@@ -137,7 +195,12 @@ interface AnalysisLogEntry {
 interface RouterAnalysisResult {
     vueDetected: boolean;
     routerDetected: boolean;
+    /** 命中的框架；缺省视为 'vue'（向后兼容旧缓存） */
+    framework?: FrameworkKind;
+    /** Vue 版本号（framework === 'vue' 时有值） */
     vueVersion?: string | null;
+    /** React 版本号（framework === 'react' 时有值） */
+    reactVersion?: string | null;
     logs?: AnalysisLogEntry[];
     modifiedRoutes?: ModifiedRoute[];
     allRoutes?: RouteEntry[];
@@ -236,8 +299,24 @@ interface PageScriptMessage {
 interface Window {
     /** UMD 构建下暴露的全局 Vue 构造函数 */
     Vue?: { version?: string };
+    /** UMD/全局构建下暴露的全局 React 对象（用于读取 version） */
+    React?: { version?: string };
     /** UMD 构建下暴露的全局 VueRouter 构造函数（用于原型级接管） */
     VueRouter?: { prototype?: Record<string, unknown> };
     /** Vue DevTools 注入的钩子，生产环境常见 */
     __VUE_DEVTOOLS_GLOBAL_HOOK__?: { Vue?: { version?: string } };
+    /** React DevTools 注入的钩子，含 renderers（部分构建可反查版本） */
+    __REACT_DEVTOOLS_GLOBAL_HOOK__?: {
+        renderers?: unknown;
+        [key: string]: unknown;
+    };
+    /** React Router 数据路由的服务端注入数据（v6.4+ SSR / prerender） */
+    __REACT_ROUTER_DATA__?: {
+        url?: string;
+        queries?: unknown;
+        [key: string]: unknown;
+    };
+    /** React Router v6.4+ 在 window 上标记激活的 data router 集合 */
+    __reactRouter6Active?: unknown;
+    [key: string]: unknown;
 }

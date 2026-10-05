@@ -109,8 +109,10 @@ export function generateFullReportMarkdown(data: FullReportData): string {
     lines.push('');
     if (data.routerAnalysis) {
         const ra = data.routerAnalysis;
-        lines.push('**Vue 版本**: ' + (ra.vueVersion || 'Unknown'));
-        lines.push('**Vue 已检测**: ' + (ra.vueDetected ? '✅ 是' : '❌ 否'));
+        const fw = ra.framework === 'react' ? 'React' : 'Vue';
+        const fwVersion = fw === 'React' ? ra.reactVersion : ra.vueVersion;
+        lines.push('**框架**: ' + fw);
+        lines.push('**' + fw + ' 版本**: ' + (fwVersion || 'Unknown'));
         lines.push('**Router 已检测**: ' + (ra.routerDetected ? '✅ 是' : '❌ 否'));
         lines.push('**路由总数**: ' + (ra.routeCount || (ra.allRoutes?.length || 0)));
         lines.push('');

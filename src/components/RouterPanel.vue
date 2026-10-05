@@ -7,15 +7,20 @@
  * 这里改成声明式渲染，避免手写字符串拼接带来的转义与一致性风险。
  */
 
+import { computed } from 'vue';
 import { useRouterAnalysis } from '../composables/useRouterAnalysis';
 import UrlList from './UrlList.vue';
 
 const {
     panelState,
     panelMessage,
+    detectedFramework,
     vueVersionText,
     routeListState
 } = useRouterAnalysis();
+
+/** 当前框架的展示名（用于标题与状态文案） */
+const frameworkLabel = computed(() => (detectedFramework.value === 'react' ? 'React' : 'Vue'));
 </script>
 
 <template>
@@ -40,7 +45,7 @@ const {
                 <path d="M15 9L9 15" stroke="#d32f2f" stroke-width="2" stroke-linecap="round"/>
                 <path d="M9 9L15 15" stroke="#d32f2f" stroke-width="2" stroke-linecap="round"/>
             </svg>
-            未检测到Vue
+            未检测到 Vue/React 应用
         </div>
 
         <div v-else-if="panelState === 'no-router'" class="status-item error">
@@ -49,11 +54,11 @@ const {
                 <path d="M15 9L9 15" stroke="#d32f2f" stroke-width="2" stroke-linecap="round"/>
                 <path d="M9 9L15 15" stroke="#d32f2f" stroke-width="2" stroke-linecap="round"/>
             </svg>
-            未检测到Vue Router
+            检测到 {{ frameworkLabel }}，但未找到可枚举的路由
         </div>
 
         <template v-else-if="panelState === 'ready'">
-            <h3>当前Vue版本： <span class="version-badge">{{ vueVersionText }}</span></h3>
+            <h3>当前{{ frameworkLabel }}版本： <span class="version-badge">{{ vueVersionText }}</span></h3>
             <UrlList :state="routeListState" />
         </template>
     </div>
