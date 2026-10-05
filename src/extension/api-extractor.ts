@@ -78,6 +78,22 @@
             .finally(function () { clearTimeout(timer); });
     }
 
+    /**
+     * 判断 URL 是否属于"目标页面自身可分析的 http(s) 资源"。
+     *
+     * 只放行 http/https 协议：Chrome 扩展隔离世界会把其它扩展注入的脚本
+     * （chrome-extension://…）以及被改写为 chrome-extension://invalid/ 的
+     * 资源也一并计入 performance / <script src>。对这些地址发起 fetch 会触发
+     * "must be listed in web_accessible_resources" 拒绝加载与 net::ERR_FAILED，
+     * 既污染控制台又无分析价值，因此在收集与 sourcemap 探测两处统一过滤。
+     *
+     * @param url - 绝对 URL
+     * @returns true 表示值得抓取分析
+     */
+    function isAnalyzableUrl(url: string): boolean {
+        return /^https?:\/\//i.test(url);
+    }
+
     // ===== 静态资源过滤 =====
     const STATIC_EXT_RE = /\.(js|mjs|css|png|jpe?g|gif|svg|ico|woff2?|ttf|eot|otf|map|html?|mp4|webp|webm|pdf|zip|txt)(\?|$)/i;
     const API_PREFIX_RE = /\/(api|apis|apiv\d|v\d{1,2}|rest|gateway|gw|svc|service|services|auth|oauth|sso|login|logout|register|user|users|admin|sys|system|manage|manager|mgr|portal|open|openapi|internal|backend|server|rpc|graphql)(\/|$)/i;
@@ -215,11 +231,13 @@
         /**
          * 内部去重添加：同一 URL 只收集一次，并保持收集顺序。
          * 用 Object.create(null) 作 seen 表，避免原型链上的键名干扰判断。
+         * 仅收集 http(s) 资源，跳过其它扩展注入的 chrome-extension:// 脚本。
          *
          * @param u - 待添加的 JS URL
          */
         function add(u: string): void {
             if (!u || seen[u]) return;
+            if (!isAnalyzableUrl(u)) return;
             seen[u] = true;
             urls.push(u);
         }
@@ -409,6 +427,9 @@
         } catch (e) {
             return Promise.resolve(null);
         }
+
+        // 与脚本收集一致：仅探测 http(s) 可达的 map，跳过 chrome-extension:// 等跨扩展地址
+        if (!isAnalyzableUrl(mapUrl)) return Promise.resolve(null);
 
         return fetchWithTimeout(mapUrl).then(function (resp) {
             if (!resp.ok) return null;
