@@ -201,6 +201,10 @@ interface RouterAnalysisResult {
     vueVersion?: string | null;
     /** React 版本号（framework === 'react' 时有值） */
     reactVersion?: string | null;
+    /** 命中的路由库名称（React 侧，如 'React Router'、'TanStack Router'、'Next.js'） */
+    routerLib?: string;
+    /** 路由库版本 / 模式标签（如 'v6 data router'、'声明式'） */
+    routerVersion?: string | null;
     logs?: AnalysisLogEntry[];
     modifiedRoutes?: ModifiedRoute[];
     allRoutes?: RouteEntry[];
@@ -318,5 +322,11 @@ interface Window {
     };
     /** React Router v6.4+ 在 window 上标记激活的 data router 集合 */
     __reactRouter6Active?: unknown;
+    /** Next.js 运行时对象（页面存在 window.next，含 version / router / appRouteCache 等） */
+    next?: {
+        version?: string;
+        router?: Record<string, unknown>;
+        [key: string]: unknown;
+    };
     [key: string]: unknown;
 }

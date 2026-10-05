@@ -8,11 +8,13 @@
  *   1. 守卫注册层 —— 拦截 Vue 的 beforeEach/beforeResolve/afterEach，
  *      并 hook Array.prototype.push 阻断守卫被塞进内部容器
  *   2. 存量守卫层 —— 清空各版本 Vue Router 内部的守卫容器
- *   3. 跳转层     —— 拦截 Vue 的 router.push/replace/go、React 的 router.navigate、
+ *   3. 跳转层     —— 拦截 Vue 的 router.push/replace/go、React 侧路由的跳转方法
+ *      （React Router / TanStack 的 navigate、Next.js 的 router.push/replace）、
  *      history.*、location.assign/replace 与 window.close，防止被踢回登录页
  *
- * React Router v6 没有集中式守卫，鉴权跳转统一经 router.navigate，
- * 因此 React 侧的接管聚焦「跳转层」；扫描时先探 Vue、未命中再探 React。
+ * React 生态路由库众多且无集中式守卫，鉴权跳转统一经各自的导航方法；
+ * 因此 React 侧接管聚焦「跳转层」，覆盖 React Router、TanStack Router、Next.js；
+ * 扫描时先探 Vue、未命中再探 React。
  *
  * 由 background.js 按站点白名单动态注册，仅对用户开启过的站点生效。
  */
@@ -496,11 +498,12 @@
 
         patchedRouters.add(router);
 
-        // navigate 在 v6 返回 void；返回 false 作为「跳转未发生」的保守信号
-        const blocker = function (..._args: any[]): false {
+        // navigate 在不同库里可能返回 void 或 Promise；统一返回已 resolve(false) 的 Promise，
+        // 既满足调用方 .then/.catch 的用法，又表示「跳转未发生」
+        const blocker = function (..._args: any[]): Promise<boolean> {
             state.routerJumpBlocked += 1;
             mark('已拦截 router.navigate');
-            return false;
+            return Promise.resolve(false);
         };
         maskToString(blocker, 'navigate');
         defineValue(target, 'navigate', blocker);
@@ -508,6 +511,48 @@
         state.routersPatched += 1;
         mark('已接管 React Router');
         return true;
+    }
+
+    /**
+     * 接管 Next.js 客户端路由（Pages / App Router 的 window.next.router）。
+     *
+     * Next 的鉴权跳转走 `router.push` / `router.replace`（getInitialProps 或
+     * App Router 的 redirect 最终也经这两个方法），替换为拦截器即可阻止被踢回登录页。
+     * window.next 在 hydration 后才出现，因此由 scanRouters 反复尝试，直到接管成功。
+     *
+     * @returns true 表示本次成功接管；false 表示尚未就绪或已接管过
+     */
+    function patchNextRouter(): boolean {
+        try {
+            const router = window.next?.router as Record<string, unknown> | undefined;
+            if (!router || typeof router !== 'object' || patchedRouters.has(router)) {
+                return false;
+            }
+            if (typeof router.push !== 'function' && typeof router.replace !== 'function') {
+                return false;
+            }
+
+            patchedRouters.add(router);
+
+            ['push', 'replace'].forEach(name => {
+                if (typeof router![name] !== 'function') {
+                    return;
+                }
+                const blocker = function (..._args: any[]): Promise<boolean> {
+                    state.routerJumpBlocked += 1;
+                    mark(`已拦截 next.router.${name}`);
+                    return Promise.resolve(false);
+                };
+                maskToString(blocker, name);
+                defineValue(router!, name, blocker);
+            });
+
+            state.routersPatched += 1;
+            mark('已接管 Next.js Router');
+            return true;
+        } catch (error) {
+            return false;
+        }
     }
 
     /**
@@ -527,19 +572,28 @@
     }
 
     /**
-     * 判断一个对象是否「像 data router」：同时具备 routes 数组 + navigate 方法 + state 对象。
+     * 判断一个对象是否为「可接管的 React 侧路由实例」。
+     *
+     * 覆盖两类主流路由库（都通过各自的 navigate 做鉴权跳转）：
+     *   - React Router v6.4+/v7 data router：routes 数组 + navigate + state
+     *   - TanStack Router：navigate + state.location + options
+     * 判定要求「有 navigate 且有 state 对象」，再附加一个库特定特征以降低误判。
      *
      * @param candidate - 待判定的未知对象
-     * @returns 是否为 React Router 实例
+     * @returns 是否为可接管的 React 路由实例
      */
     function isReactRouterLike(candidate: unknown): candidate is ReactRouterLike {
         if (!candidate || typeof candidate !== 'object') {
             return false;
         }
-        const obj = candidate as ReactRouterLike;
-        return Array.isArray(obj.routes) &&
-            typeof obj.navigate === 'function' &&
-            !!(obj.state && typeof obj.state === 'object');
+        const obj = candidate as ReactRouterLike & { options?: unknown };
+        if (typeof obj.navigate !== 'function' || !(obj.state && typeof obj.state === 'object')) {
+            return false;
+        }
+        return Array.isArray(obj.routes) ||
+            !!(obj.state as { location?: unknown })?.location ||
+            !!(obj.state as { matches?: unknown })?.matches ||
+            !!(obj as { options?: unknown }).options;
     }
 
     /**
@@ -640,6 +694,7 @@
      */
     function scanRouters(): void {
         patchVueRouterPrototype();
+        patchNextRouter();
 
         if (!document.documentElement) {
             return;

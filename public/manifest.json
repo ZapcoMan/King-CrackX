@@ -1,7 +1,7 @@
 {
   "name": "King-Crack",
   "version": "0.3.0",
-  "description": "自动识别 VUE/REACT 框架，枚举路由、强制绕过前端路由守卫、提取API",
+  "description": "自动识别 Vue/React 框架（React Router/TanStack/Next.js），枚举路由、强制绕过前端路由守卫、提取API",
   "manifest_version": 3,
     "action": {
     "default_popup": "index.html",

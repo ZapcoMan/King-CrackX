@@ -229,6 +229,7 @@
                     framework: result?.framework || 'vue',
                     vueVersion: result?.vueVersion || 'Unknown',
                     reactVersion: result?.reactVersion || 'Unknown',
+                    routerLib: result?.routerLib || '',
                     modifiedRoutes: result?.modifiedRoutes || [],
                     error: 'Serialization failed',
                     allRoutes: []
@@ -1222,43 +1223,338 @@
     }
 
     /**
-     * 从运行时状态尽力收集 React 路由路径（data router 枚举失败时的兜底）。
+     * 把当前地址栏路径也补进路由清单，保证列表至少有一条可访问的真实 URL。
      *
-     * 覆盖两个来源：
-     *   1. router.state.matches —— 当前匹配链上的 pathname（至少拿到已激活路径）
-     *   2. window.__REACT_ROUTER_DATA__ —— v6.4+ SSR/prefetch 注入的路由数据
-     *
-     * @param router - 已发现的 router（可为 null）
-     * @returns 收集到的路由条目
+     * @param out - 结果累加容器
      */
-    function collectReactRoutesFromRuntime(router: ReactRouterLike | null): RouteEntry[] {
-        const list: RouteEntry[] = [];
+    function pushCurrentPath(out: RouteEntry[]): void {
+        try {
+            const path = window.location.pathname || '/';
+            out.push({ name: undefined, path, meta: {} });
+        } catch (e) {
+            // 地址不可读时跳过
+        }
+    }
+
+    /**
+     * 收集页面内链（<a href>）作为路由兜底。
+     *
+     * 用途：当无法定位任何可枚举的路由实例（自研路由 / 特殊配置）时，
+     * 至少把页面上出现的站内链接暴露出来，供渗透测试点击与绕路。
+     * 过滤掉带扩展名的静态资源链接与外链。
+     *
+     * @returns 站内链接路径清单
+     */
+    function collectAnchorRoutes(): RouteEntry[] {
+        const out: RouteEntry[] = [];
+        try {
+            const seen = new Set<string>();
+            document.querySelectorAll('a[href]').forEach(a => {
+                const href = a.getAttribute('href');
+                if (!href || !href.startsWith('/') || href.startsWith('//') || href.includes('.')) {
+                    return;
+                }
+                const path = href.split('#')[0].split('?')[0];
+                if (!path || seen.has(path)) {
+                    return;
+                }
+                seen.add(path);
+                out.push({ name: undefined, path, meta: {} });
+            });
+        } catch (e) {
+            handleError(e, 'collectAnchorRoutes');
+        }
+        return out;
+    }
+
+    /**
+     * 判断一个对象是否「像 TanStack Router 实例」。
+     *
+     * TanStack Router（@tanstack/react-router）的 router 对象特征：
+     *   - state：含 location（对象）与 routes（全部路由的扁平表）
+     *   - navigate：编程式跳转方法
+     *   - options：路由树配置
+     * 与 React Router data router 的区分点：TanStack 的 state.location 是对象，
+     * 且带 routesById / routesPath 这类扁平索引；React Router 的 state.navigation 才是重点。
+     *
+     * @param candidate - 待判定的未知对象
+     * @returns 是否为 TanStack Router 实例
+     */
+    function isTanStackRouterLike(candidate: unknown): candidate is Record<string, any> {
+        if (!candidate || typeof candidate !== 'object') {
+            return false;
+        }
+        const obj = candidate as Record<string, any>;
+        return typeof obj.navigate === 'function' &&
+            !!(obj.state && typeof obj.state === 'object') &&
+            typeof obj.state.location === 'object' &&
+            !!(obj.options && typeof obj.options === 'object');
+    }
+
+    /**
+     * 遍历 Fiber 树寻找 TanStack Router 实例。
+     *
+     * 复用与 detectReactRouterObject 相同的遍历骨架（props / hook / stateNode 三处取值），
+     * 仅判定函数换成 isTanStackRouterLike。
+     *
+     * @param rootFiber - 根 Fiber
+     * @returns 找到的 router 实例；未找到时为 null
+     */
+    function findTanStackRouter(rootFiber: ReactFiberLike | null): Record<string, any> | null {
+        if (!rootFiber) {
+            return null;
+        }
+
+        const queue: ReactFiberLike[] = [rootFiber];
+        const visited = new Set<ReactFiberLike>();
+        let scanned = 0;
+
+        const pick = (...candidates: unknown[]): Record<string, any> | null => {
+            for (const candidate of candidates) {
+                if (isTanStackRouterLike(candidate)) {
+                    return candidate as Record<string, any>;
+                }
+                if (candidate && typeof candidate === 'object') {
+                    const wrapped = (candidate as { router?: unknown }).router;
+                    if (isTanStackRouterLike(wrapped)) {
+                        return wrapped as Record<string, any>;
+                    }
+                }
+            }
+            return null;
+        };
+
+        while (queue.length && scanned < 6000) {
+            const fiber = queue.shift() as ReactFiberLike;
+            if (!fiber || visited.has(fiber)) continue;
+            visited.add(fiber);
+            scanned += 1;
+
+            const found = pick(fiber.memoizedProps, (fiber.memoizedProps as { router?: unknown } | undefined)?.router, fiber.stateNode);
+            if (found) return found;
+
+            let hook = fiber.memoizedState as { memoizedState?: unknown; next?: unknown } | null;
+            let guard = 0;
+            while (hook && guard < 100) {
+                const viaHook = pick(hook.memoizedState);
+                if (viaHook) return viaHook;
+                hook = hook.next as typeof hook;
+                guard += 1;
+            }
+
+            if (fiber.child) queue.push(fiber.child);
+            if (fiber.sibling) queue.push(fiber.sibling);
+        }
+
+        return null;
+    }
+
+    /**
+     * 展开 TanStack Router 的路由为完整路径清单。
+     *
+     * 优先用 router.state.routes / routesById 这类扁平索引（每项自带 fullPath），
+     * 退化时才遍历 options.routes 配置树。
+     *
+     * @param router - TanStack Router 实例
+     * @param out - 结果累加容器
+     */
+    function collectTanStackRoutes(router: Record<string, any>, out: RouteEntry[]): void {
+        try {
+            const flat: unknown[] = [];
+
+            if (Array.isArray(router.state?.routes)) {
+                flat.push(...router.state.routes);
+            } else if (router.routesById && typeof router.routesById === 'object') {
+                flat.push(...Object.values(router.routesById));
+            }
+
+            if (!flat.length && Array.isArray(router.options?.routes)) {
+                flat.push(...router.options.routes);
+            }
+
+            flat.forEach(node => {
+                if (!node || typeof node !== 'object') return;
+                const raw = (node as { fullPath?: string; path?: string; id?: string });
+                let fullPath = raw.fullPath || raw.path || '';
+                if (!fullPath) return;
+                if (!fullPath.startsWith('/')) {
+                    fullPath = '/' + fullPath;
+                }
+                out.push({ name: raw.id, path: fullPath.replace(/\/\/+/g, '/'), meta: {} });
+            });
+        } catch (e) {
+            handleError(e, 'collectTanStackRoutes');
+        }
+    }
+
+    /**
+     * 从声明式 React Router（v4/v5 的 <Switch>/<Route>、v6 的 <Routes>/<Route>）中收集路径。
+     *
+     * 声明式路由没有集中的 routes 数组，但每个 <Route> 都会渲染成一个 Fiber，
+     * 其 memoizedProps 上带着 path 以及 element/component/render/children 之一。
+     * 据此识别 Route 元素并抽取 path（相对路径按原样收集，交由 popup 去重）。
+     *
+     * @param rootFiber - 根 Fiber
+     * @returns routes 收集到的路径；mode 为推断出的写法标签
+     */
+    function harvestDeclarativeRoutes(rootFiber: ReactFiberLike | null): { routes: RouteEntry[]; mode: string | null } {
+        const routes: RouteEntry[] = [];
+        let mode: string | null = null;
+        if (!rootFiber) {
+            return { routes, mode };
+        }
+
+        const queue: ReactFiberLike[] = [rootFiber];
+        const visited = new Set<ReactFiberLike>();
+        let scanned = 0;
+
+        const isRouteProps = (props: Record<string, any> | undefined): boolean =>
+            !!props &&
+            typeof props.path === 'string' &&
+            ('element' in props || 'component' in props || 'render' in props || 'children' in props);
+
+        while (queue.length && scanned < 6000) {
+            const fiber = queue.shift() as ReactFiberLike;
+            if (!fiber || visited.has(fiber)) continue;
+            visited.add(fiber);
+            scanned += 1;
+
+            const props = fiber.memoizedProps as Record<string, any> | undefined;
+            if (isRouteProps(props)) {
+                const rawPath = typeof props!.path === 'string' ? props!.path : '';
+                // v6 用 element，v4/v5 用 component/render —— 据此粗略区分写法
+                if (!mode) {
+                    mode = ('element' in props!) ? 'v6/v7 声明式' : 'v4/v5 声明式';
+                }
+                // 归一化为绝对路径展示；相对路径直接补前导斜杠
+                const path = rawPath.startsWith('/') ? rawPath : ('/' + rawPath);
+                routes.push({ name: undefined, path: path.replace(/\/\/+/g, '/'), meta: {} });
+            }
+
+            if (fiber.child) queue.push(fiber.child);
+            if (fiber.sibling) queue.push(fiber.sibling);
+        }
+
+        return { routes, mode };
+    }
+
+    /**
+     * 枚举 Next.js 客户端路由。
+     *
+     * - Pages Router：`window.next.router.components` 是以路由路径为 key 的映射，可直接取全部键。
+     * - App Router：路由信息多在服务端 manifest，客户端较难全量枚举；
+     *   退而取 router.components（若存在）与 __NEXT_DATA__ 的当前 page。
+     *
+     * @returns 收集到的 Next.js 路由路径
+     */
+    function enumerateNextRoutes(): RouteEntry[] {
+        const out: RouteEntry[] = [];
 
         try {
-            if (router && Array.isArray(router.state?.matches)) {
-                router.state!.matches.forEach(match => {
-                    if (match && typeof match.pathname === 'string') {
-                        list.push({ name: match.routeId, path: match.pathname, meta: {} });
+            const components = (window.next?.router as { components?: Record<string, unknown> } | undefined)?.components;
+            if (components && typeof components === 'object') {
+                Object.keys(components).forEach(path => {
+                    if (typeof path === 'string' && path) {
+                        out.push({ name: undefined, path: path.startsWith('/') ? path : '/' + path, meta: {} });
                     }
                 });
             }
         } catch (e) {
-            handleError(e, 'collectReactRoutesFromRuntime:matches');
+            handleError(e, 'enumerateNextRoutes:components');
         }
 
-        return list;
+        try {
+            // App Router 的客户端段预加载缓存（不同版本字段名不一，尽力探测）
+            const cache = (window.next?.router as Record<string, unknown> | undefined)?.appRouteCache;
+            if (cache && typeof cache === 'object') {
+                Object.keys(cache).forEach(path => {
+                    if (typeof path === 'string' && path) {
+                        out.push({ name: undefined, path: path.startsWith('/') ? path : '/' + path, meta: {} });
+                    }
+                });
+            }
+        } catch (e) {
+            // 该字段不存在时静默跳过
+        }
+
+        return out;
     }
 
     /**
-     * 执行完整的 React / React Router 分析。
+     * 多适配器路由收集：按 Next.js → React Router data → TanStack → 声明式 → 锚点 的顺序尝试。
      *
-     * 与 performFullAnalysis（Vue）保持同样的结果结构，仅 framework 字段不同：
-     *   1. 取出根 Fiber，读版本
-     *   2. 从 Fiber 树发现 data router，成功则展开 routes 配置树
-     *   3. 发现失败则退化为运行时状态收集（routerDetected 相应置否）
+     * 顺序依据「枚举完整度」：能拿到集中路由表的优先，全部落空才用内链兜底。
+     * 返回路由库名称与版本标签，供界面展示与报告标注。
+     *
+     * @param rootFiber - 根 Fiber
+     * @returns 路由清单 + 命中的路由库信息 + 是否检测到路由
+     */
+    function collectReactRoutes(rootFiber: ReactFiberLike | null): {
+        routes: RouteEntry[];
+        routerLib: string;
+        routerVersion: string | null;
+        detected: boolean;
+    } {
+        // 1. Next.js（存在 window.next 即判定）
+        if (window.next) {
+            const nextRoutes = enumerateNextRoutes();
+            return {
+                routes: nextRoutes,
+                routerLib: 'Next.js',
+                routerVersion: window.next.version || '未知版本',
+                detected: nextRoutes.length > 0
+            };
+        }
+
+        // 2. React Router data router（v6.4+ / v7）
+        const dataRouter = detectReactRouterObject(rootFiber);
+        if (dataRouter) {
+            const routes: RouteEntry[] = [];
+            flattenReactRoutes(dataRouter.routes, '', routes);
+            // 配置树为空时退化到当前匹配链
+            if (!routes.length && Array.isArray(dataRouter.state?.matches)) {
+                dataRouter.state!.matches.forEach(match => {
+                    if (match && typeof match.pathname === 'string') {
+                        routes.push({ name: match.routeId, path: match.pathname, meta: {} });
+                    }
+                });
+            }
+            return { routes, routerLib: 'React Router', routerVersion: 'v6.4+ / v7 data router', detected: true };
+        }
+
+        // 3. TanStack Router
+        const tanstack = findTanStackRouter(rootFiber);
+        if (tanstack) {
+            const routes: RouteEntry[] = [];
+            collectTanStackRoutes(tanstack, routes);
+            return { routes, routerLib: 'TanStack Router', routerVersion: 'data router', detected: true };
+        }
+
+        // 4. 声明式 React Router（<Routes>/<Route>、<Switch>）
+        const declarative = harvestDeclarativeRoutes(rootFiber);
+        if (declarative.routes.length) {
+            return { routes: declarative.routes, routerLib: 'React Router', routerVersion: declarative.mode, detected: true };
+        }
+
+        // 5. 锚点兜底（自研路由 / 无法静态枚举）
+        return {
+            routes: collectAnchorRoutes(),
+            routerLib: '未知路由库',
+            routerVersion: null,
+            detected: false
+        };
+    }
+
+    /**
+     * 执行完整的 React 路由分析（多框架适配版）。
+     *
+     * 与 performFullAnalysis（Vue）保持同样的结果结构，framework 固定为 'react'：
+     *   1. 取出根 Fiber，读 React 版本
+     *   2. 依次尝试 Next.js / React Router data / TanStack / 声明式 / 锚点 五类路由来源
+     *   3. 记录命中的路由库名称与版本标签
      *   4. 复用页面链接前缀分析推测候选基础路径
      *
-     * React 没有集中的守卫/meta，本函数只做**只读枚举**；
+     * React 生态没有集中的守卫/meta，本函数只做**只读枚举**；
      * 鉴权绕过统一交由 all-in.js 前置接管。
      *
      * @param element - React 挂载元素
@@ -1275,6 +1571,8 @@
             framework: 'react',
             vueVersion: null,
             reactVersion: null,
+            routerLib: '',
+            routerVersion: null,
             modifiedRoutes: [],
             allRoutes: [],
             routerBase: '',
@@ -1290,20 +1588,18 @@
             result.reactVersion = getReactVersion(element);
             console.log('✅ React 版本：', result.reactVersion);
 
-            const router = detectReactRouterObject(rootFiber);
+            const collected = collectReactRoutes(rootFiber);
+            result.routerLib = collected.routerLib;
+            result.routerVersion = collected.routerVersion;
+            result.routerDetected = collected.detected;
+            result.allRoutes = collected.routes;
 
-            if (router) {
-                result.routerDetected = true;
-                flattenReactRoutes(router.routes, '', result.allRoutes);
+            // 无论如何都把当前路径纳入，保证列表可用、绕路有落点
+            pushCurrentPath(result.allRoutes);
 
-                // 运行时状态兜底：把 matches 里的当前路径也纳入（去重交给 popup）
-                if (!result.allRoutes.length) {
-                    result.allRoutes = collectReactRoutesFromRuntime(router);
-                }
-                console.log('🔍 React Router data router 已定位，路由数：', result.allRoutes.length);
-            } else {
-                result.allRoutes = collectReactRoutesFromRuntime(null);
-                console.warn('🚫 未定位到可枚举的 React Router 实例（可能是声明式 <Routes> 或是版本无法静态枚举）');
+            console.log('🔍 路由库：', result.routerLib, result.routerVersion || '', '· 路由数：', result.allRoutes.length);
+            if (!collected.detected) {
+                console.warn('🚫 未定位到可枚举的路由实例（可能是自研路由 / 声明式嵌套相对路径无法还原）');
             }
 
             // 复用页面链接分析，得到候选基础路径

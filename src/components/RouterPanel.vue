@@ -16,6 +16,8 @@ const {
     panelMessage,
     detectedFramework,
     vueVersionText,
+    routerLibText,
+    routerVersionText,
     routeListState
 } = useRouterAnalysis();
 
@@ -59,6 +61,7 @@ const frameworkLabel = computed(() => (detectedFramework.value === 'react' ? 'Re
 
         <template v-else-if="panelState === 'ready'">
             <h3>当前{{ frameworkLabel }}版本： <span class="version-badge">{{ vueVersionText }}</span></h3>
+            <h3 v-if="routerLibText" class="router-lib-line">路由库： <span class="version-badge">{{ routerLibText }}</span><span v-if="routerVersionText" class="router-lib-ver">{{ routerVersionText }}</span></h3>
             <UrlList :state="routeListState" />
         </template>
     </div>

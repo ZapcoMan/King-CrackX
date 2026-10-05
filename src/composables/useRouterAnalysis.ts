@@ -119,6 +119,21 @@ const vueVersionText = computed(() => {
     return (detectedFramework.value === 'react' ? result.reactVersion : result.vueVersion) || 'Unknown';
 });
 
+/** 命中的路由库名称（React 侧来自分析结果，Vue 侧固定为 Vue Router） */
+const routerLibText = computed(() => {
+    const result = vueAnalysisResult.value;
+    if (!result) {
+        return '';
+    }
+    if (detectedFramework.value === 'react') {
+        return result.routerLib || '';
+    }
+    return 'Vue Router';
+});
+
+/** 路由库版本 / 模式标签（React 侧才有意义） */
+const routerVersionText = computed(() => vueAnalysisResult.value?.routerVersion || '');
+
 /** 切换到错误态 */
 function showError(message: string): void {
     panelState.value = 'error';
@@ -253,6 +268,8 @@ export function useRouterAnalysis() {
         panelMessage,
         detectedFramework,
         vueVersionText,
+        routerLibText,
+        routerVersionText,
         routeListState,
         lastOpenedRoute,
         showError,
