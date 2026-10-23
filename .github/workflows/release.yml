@@ -37,14 +37,14 @@ jobs:
           cd ..
           ls -la "king-crackx-${GITHUB_REF_NAME}.zip"
 
-      - name: Resolve release body from tag message
+      - name: Resolve release notes from changelog
         id: body
         run: |
-          MSG="$(git tag -l "${GITHUB_REF_NAME}" --format='%(contents:body)')"
-          [ -z "$MSG" ] && MSG="${GITHUB_REF_NAME}"
+          BODY="$(awk '/^##[[:space:]]/ { n++; if (n==2) exit } n==1 { print }' docs/changelog.md)"
+          [ -z "$BODY" ] && BODY="${GITHUB_REF_NAME}"
           {
             echo "text<<RELEASE_BODY_EOF"
-            echo "$MSG"
+            echo "$BODY"
             echo "RELEASE_BODY_EOF"
           } >> "$GITHUB_OUTPUT"
 
