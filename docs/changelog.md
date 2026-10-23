@@ -1,5 +1,14 @@
 # King-CrackX 更新日志
 
+## v1.0.6 - 修复发布工作流
+
+### 修复
+- Release 工作流的 `npm ci` 增加 `--legacy-peer-deps`，解决 `vite@8` 与 `@vitejs/plugin-vue@5.2.4` peer 依赖冲突导致的依赖安装失败（构建与发布此前被阻断）。
+
+### 变更
+- 官网补充 `theme-color` meta（移动端浏览器配色）。
+- 同步版本号至 `1.0.6`（`package.json` / `public/manifest.json` / `package-lock.json` / 官网徽章）。
+
 ## v1.0.5 - 官网与发布流程
 
 ### 新增
