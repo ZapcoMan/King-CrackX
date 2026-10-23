@@ -40,7 +40,7 @@ jobs:
       - name: Resolve release notes from changelog
         id: body
         run: |
-          BODY="$(awk '/^##[[:space:]]/ { n++; if (n==2) exit } n==1 { print }' docs/changelog.md)"
+          BODY="$(awk '/^## / { n++; if (n==2) exit } n==1 { print }' docs/changelog.md)"
           [ -z "$BODY" ] && BODY="${GITHUB_REF_NAME}"
           {
             echo "text<<RELEASE_BODY_EOF"

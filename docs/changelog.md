@@ -1,5 +1,13 @@
 # King-CrackX 更新日志
 
+## v1.0.7 - 修复 Release 正文提取
+
+### 修复
+- Release 工作流的 changelog 段落提取改用 POSIX 兼容的 `^## ` 字面匹配；此前 `[[:space:]]` 字符类在 runner 默认 mawk 下不匹配，导致 Release 正文退化为 tag 名。
+
+### 变更
+- 同步版本号至 `1.0.7`（`package.json` / `public/manifest.json` / `package-lock.json` / 官网徽章）。
+
 ## v1.0.6 - 修复发布工作流
 
 ### 修复
