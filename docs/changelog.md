@@ -1,5 +1,19 @@
 # King-CrackX 更新日志
 
+## v1.0.5 - 官网与发布流程
+
+### 新增
+- 新增插件官网 `site/`（静态页面，含当前版本徽章、功能介绍、安装/下载入口与免责声明）。
+- 新增 GitHub Pages 部署工作流 `.github/workflows/pages.yml`：`master` 分支下 `site/**` 变更后自动部署官网。
+- 新增 GitHub Release 工作流 `.github/workflows/release.yml`：推送 `v*` tag 时自动 `npm run build`、将 `dist/` 打包为 zip 并创建 GitHub Release。
+
+### 变更
+- 同步各处版本号至 `1.0.5`（`package.json` / `public/manifest.json` / `package-lock.json`）。
+
+## v1.0.4 - 框架检测与路由架构更新
+
+- 更新框架检测与路由分发架构，并将安全审计面板并入统一主题体系（对应提交 `feat(architecture)`）。
+
 ## v1.0.3 - React 生态框架支持
 
 ### 新增功能
