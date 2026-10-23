@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="King-CrackX —— 面向授权渗透测试与前端安全评估的 Chrome 扩展：自动识别 Vue/React 框架、枚举路由、绕过前端路由守卫、提取 API 端点并生成安全审计报告。" />
+  <title>King-CrackX · 前端路由分析与安全审计扩展</title>
+  <link rel="icon" type="image/png" href="./icon256.png" />
+  <style>
+    :root {
+      --bg: #060a08;
+      --bg-soft: #0b120e;
+      --panel: #0e1712;
+      --line: #16302a;
+      --neon: #00ff9c;
+      --neon-2: #00e5ff;
+      --text: #c8f2df;
+      --text-dim: #7d9a8c;
+      --mono: "JetBrains Mono", "Fira Code", ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(0, 229, 255, 0.08), transparent 60%),
+        var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(0, 255, 156, 0.03) 0, rgba(0, 255, 156, 0.03) 1px, transparent 2px, transparent 4px);
+      z-index: 1;
+    }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 2; }
+
+    a { color: var(--neon-2); text-decoration: none; }
+    a:hover { text-shadow: 0 0 8px rgba(0, 229, 255, 0.6); }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 4px 12px; border: 1px solid var(--neon); border-radius: 999px;
+      color: var(--neon); font-size: 13px; letter-spacing: .04em;
+      box-shadow: 0 0 12px rgba(0, 255, 156, 0.25) inset, 0 0 10px rgba(0, 255, 156, 0.2);
+    }
+    .badge::before { content: "◆"; font-size: 10px; }
+
+    header { padding: 72px 0 40px; }
+    .logo { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+    .logo img { width: 56px; height: 56px; filter: drop-shadow(0 0 10px rgba(0, 255, 156, 0.5)); }
+    .logo h1 { font-size: 34px; margin: 0; letter-spacing: .02em; color: #eafff6; text-shadow: 0 0 18px rgba(0, 255, 156, 0.35); }
+    .tagline { font-size: 17px; color: var(--text-dim); max-width: 720px; margin: 18px 0 26px; }
+    .cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      border: 1px solid var(--line); background: var(--panel); color: var(--text);
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .btn.primary { border-color: var(--neon); color: #04150f; background: var(--neon); box-shadow: 0 0 18px rgba(0, 255, 156, 0.35); }
+    .btn.primary:hover { text-shadow: none; box-shadow: 0 0 26px rgba(0, 255, 156, 0.6); }
+    .btn.ghost:hover { border-color: var(--neon-2); box-shadow: 0 0 16px rgba(0, 229, 255, 0.25); }
+
+    section { padding: 40px 0; border-top: 1px solid var(--line); }
+    section h2 { font-size: 22px; margin: 0 0 20px; color: #eafff6; }
+    section h2 span { color: var(--neon); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+    .card {
+      background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 20px;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    .card:hover { border-color: var(--neon); box-shadow: 0 0 22px rgba(0, 255, 156, 0.14); }
+    .card h3 { margin: 0 0 8px; font-size: 16px; color: var(--neon); }
+    .card p { margin: 0; font-size: 14px; color: var(--text-dim); }
+
+    ul.check { list-style: none; padding: 0; margin: 0; }
+    ul.check li { padding: 6px 0 6px 26px; position: relative; font-size: 14px; }
+    ul.check li::before { content: "▸"; position: absolute; left: 4px; color: var(--neon); }
+
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    .step { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; font-size: 14px; }
+    .step b { color: var(--neon-2); }
+    code.inline { background: #06120d; border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px; color: var(--neon); font-size: 13px; }
+
+    pre { background: #04100b; border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow: auto; font-size: 13px; color: var(--text); }
+    pre .c { color: var(--text-dim); }
+
+    .notice { border-left: 3px solid var(--neon-2); background: rgba(0, 229, 255, 0.05); padding: 14px 18px; border-radius: 0 8px 8px 0; font-size: 14px; color: var(--text); }
+
+    footer { padding: 36px 0 60px; border-top: 1px solid var(--line); color: var(--text-dim); font-size: 13px; }
+    footer .row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+    footer .upstream { color: var(--text-dim); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="badge">当前版本 v1.0.5</div>
+      <div class="logo">
+        <img src="./icon256.png" alt="King-CrackX 图标" />
+        <h1>King-CrackX</h1>
+      </div>
+      <p class="tagline">
+        面向<strong>授权渗透测试与前端安全评估</strong>的 Chrome / Chromium 扩展（Manifest V3）。
+        自动识别目标站点的 Vue / React 框架、枚举全部路由并生成可访问的完整 URL、绕过前端路由守卫、
+        从源码与真实请求中提取 API 端点，并基于分析结果自动执行安全审计、导出 Markdown 报告。
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/ZapcoMan/King-CrackX/releases/latest" target="_blank" rel="noopener">下载扩展包</a>
+        <a class="btn ghost" href="https://github.com/ZapcoMan/King-CrackX" target="_blank" rel="noopener">GitHub 仓库</a>
+      </div>
+    </header>
+
+    <section id="features">
+      <h2><span>■</span> 功能特性</h2>
+      <div class="grid">
+        <div class="card"><h3>框架与版本检测</h3><p>自动识别 Vue（2 / 3）与 React（17 / 18 / 19）并输出版本号，兼容延迟挂载的 SPA。</p></div>
+        <div class="card"><h3>路由枚举 · 完整 URL</h3><p>按 Hash / History 模式与基础路径生成可点击的完整 URL 列表，无法静态枚举时以页面锚点兜底。</p></div>
+        <div class="card"><h3>梭哈模式 · 绕过守卫</h3><p><code class="inline">document_start</code> 抢跑强制接管 Router，清除守卫并拦截跳转，按站点白名单生效。</p></div>
+        <div class="card"><h3>API 端点提取</h3><p>汇总真实请求、JS 源码静态提取与 Sourcemap 探测三类数据，标注未调用端点，可复制或导出。</p></div>
+        <div class="card"><h3>安全审计报告</h3><p>检测敏感 API、裸露路由与 Sourcemap 泄露，生成风险评级与修复建议，导出综合 Markdown 报告。</p></div>
+        <div class="card"><h3>多主题 · 结果缓存</h3><p>浅色 / 深色 / 跟随系统 / 极客四种主题；按 URL 缓存分析结果，重复打开秒出。</p></div>
+      </div>
+    </section>
+
+    <section id="routers">
+      <h2><span>■</span> 支持的路由方案</h2>
+      <ul class="check">
+        <li><b>Vue Router</b> —— 兼容 v2 / v3 / v4</li>
+        <li><b>React Router</b> —— data router（v6.4+ / v7）与声明式（v4–v7）</li>
+        <li><b>TanStack Router</b> —— 优先读取 <code class="inline">state.routes</code>，回退路由表</li>
+        <li><b>Next.js</b> —— Pages Router 枚举组件键，App Router 尽力探测</li>
+      </ul>
+    </section>
+
+    <section id="install">
+      <h2><span>■</span> 安装</h2>
+      <p>从 <a href="https://github.com/ZapcoMan/King-CrackX/releases/latest" target="_blank" rel="noopener">Releases</a> 下载扩展包并解压，或使用源码构建：</p>
+      <pre><span class="c"># 构建产物位于 dist/</span>
+npm install --include=dev
+npm run build</pre>
+      <p style="margin-top:16px">打开 <code class="inline">chrome://extensions/</code>，开启<strong>开发者模式</strong>，点击「加载已解压的扩展程序」，选择解压后的目录即可。</p>
+    </section>
+
+    <section id="usage">
+      <h2><span>■</span> 使用</h2>
+      <div class="steps">
+        <div class="step"><b>① 分析</b><br />打开目标页面点击扩展图标，自动识别框架并分析路由。</div>
+        <div class="step"><b>② 访问</b><br />在完整 URL 列表中复制或打开目标路由。</div>
+        <div class="step"><b>③ 绕过</b><br />需要绕过守卫时开启梭哈模式并刷新（仅当前站点生效）。</div>
+        <div class="step"><b>④ 提取</b><br />点击「提取 API」获取端点清单，可复制或导出。</div>
+        <div class="step"><b>⑤ 审计</b><br />在安全审计面板点击「开始审计」，导出整合全模块的 Markdown 报告。</div>
+      </div>
+    </section>
+
+    <section id="how">
+      <h2><span>■</span> 工作原理</h2>
+      <p>扩展同时运行在<strong>三个 JavaScript 世界</strong>（扩展后台 / 内容脚本 ISOLATED / 页面主世界 MAIN），<code class="inline">content.ts</code> 作为传话筒桥接 <code class="inline">chrome.*</code> 与页面框架内部对象。详见仓库内文档 <a href="https://github.com/ZapcoMan/King-CrackX/blob/master/docs/architecture.md" target="_blank" rel="noopener">整体架构：三世界模型</a>。</p>
+    </section>
+
+    <section id="legal">
+      <h2><span>■</span> 免责声明</h2>
+      <div class="notice">
+        本项目仅供<strong>安全研究与授权渗透测试</strong>使用。使用者应确保已获得目标系统的明确书面授权，并遵守当地法律法规。任何未经授权的测试、攻击或数据获取行为均与项目作者无关，由使用者自行承担全部责任。
+      </div>
+    </section>
+
+    <footer>
+      <div class="row">
+        <span>Project v1.0.5 · King-CrackX</span>
+        <span class="upstream">基于上游
+          <a href="https://github.com/chaojiwudichoubie1-arch/King-Crack" target="_blank" rel="noopener">King-Crack</a>
+          二次开发
+        </span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

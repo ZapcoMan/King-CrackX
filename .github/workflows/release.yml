@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --include=dev
+
+      - name: Build extension
+        run: npm run build
+
+      - name: Package dist into zip
+        run: |
+          cd dist
+          zip -r "../king-crackx-${GITHUB_REF_NAME}.zip" .
+          cd ..
+          ls -la "king-crackx-${GITHUB_REF_NAME}.zip"
+
+      - name: Resolve release body from tag message
+        id: body
+        run: |
+          MSG="$(git tag -l "${GITHUB_REF_NAME}" --format='%(contents:body)')"
+          [ -z "$MSG" ] && MSG="${GITHUB_REF_NAME}"
+          {
+            echo "text<<RELEASE_BODY_EOF"
+            echo "$MSG"
+            echo "RELEASE_BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          body: ${{ steps.body.outputs.text }}
+          files: king-crackx-${{ github.ref_name }}.zip
