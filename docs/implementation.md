@@ -391,6 +391,15 @@ Next 的鉴权跳转走 `window.next.router.push` / `replace`（Pages 与 App Ro
 - `buildApiExportFilename()`：`vuecrack-api-<host>-<yyyyMMdd-HHmmss>.txt`
 - `downloadTextFile()`：Blob + `a[download]`，不需要额外权限
 
+#### ⑥ XSS / 注入模式静态扫描
+
+复用同一批已拉取的 JS 源码文本（外部脚本 + 内联脚本，**不额外发请求**），用一组精确 needle（如 `document.write(`、`.innerHTML`、`dangerouslySetInnerHTML`、`eval(` 等）对每个文件按「来源 × 模式」做 `split` 计数，聚合为 `xssFindings` 随结果回传 popup：
+
+- **高危**：HTML 注入面 `dangerouslySetInnerHTML` / `v-html` / `document.write`·`writeln` / `insertAdjacentHTML`，以及代码执行面 `eval` / `new Function`。
+- **中危**：`.innerHTML` / `.outerHTML`（生产构建后 Vue 的 `v-html` 通常编译为 `innerHTML`，故 `.innerHTML` 也能覆盖模板注入；因其在大体积库代码里常见，列中危供人工复核）。
+
+needle 一律用带括号 / 点的精确串，避免 `document.write` 误吞 `document.writeln`。结果在安全审计里并入整体风险，并在导出报告新增「XSS / 注入风险」章节。
+
 ### 5. 分析结果缓存
 
 **目标**：同一 URL 第二次打开 popup 时秒出结果，避免重复分析。

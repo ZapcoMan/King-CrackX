@@ -10,7 +10,7 @@
 - **路由枚举与完整 URL 生成** —— Vue 兼容 Router 2/3/4；React 侧多路由库适配：React Router（v6.4+ / v7 data router、v4–v7 声明式）、TanStack Router、Next.js（Pages / App），并按命中结果显示「路由库」名称；无法静态枚举时以页面锚点链接兜底。按 Hash / History 模式与基础路径生成可点击的完整 URL。
 - **梭哈模式（绕过前端路由守卫）** —— `document_start` 抢跑强制接管 Router：Vue 清除守卫并拦截 `push/replace`，React 拦截 `router.navigate` / TanStack `navigate` / Next.js `router.push·replace`；按站点白名单生效，实时回显拦截统计。
 - **API 端点提取与导出** —— 汇总真实请求 / JS 源码静态提取 / Sourcemap 探测三类数据，标注未调用端点，可复制 JSON 或导出 TXT。
-- **安全审计** —— 复用上述结果，自动检测敏感 API、裸露路由与 Sourcemap 泄露，生成风险评级与修复建议，可导出综合 Markdown 报告。
+- **安全审计** —— 复用上述结果，自动检测敏感 API、裸露路由、Sourcemap 泄露与 XSS/注入模式（`v-html`、`dangerouslySetInnerHTML`、`document.write`、`eval` 等），生成风险评级与修复建议，可导出综合 Markdown 报告。
 - **分析结果缓存** —— 按 URL 缓存分析结果、按站点记忆已打开的路由，重复打开秒出。
 - **多主题切换** —— 浅色 / 深色 / 跟随系统（默认）/ 极客。
 
