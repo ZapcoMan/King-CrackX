@@ -1,5 +1,15 @@
 # King-CrackX 更新日志
 
+## v1.1.0 - XSS / 注入检测
+
+### 新增
+- 安全审计新增 **XSS / 注入静态源码扫描**：复用已拉取的 JS 源码（外部脚本 + 内联脚本，零额外请求），按「来源 × 模式」聚合命中次数。
+- 高危模式：`v-html`、`dangerouslySetInnerHTML`、`document.write`/`document.writeln`、`insertAdjacentHTML`、`eval`、`new Function`；中危：`.innerHTML`、`.outerHTML`。
+- 命中项纳入整体风险评级与安全建议，弹窗新增「XSS 风险」面板，导出报告新增 XSS 章节。
+
+### 变更
+- 同步版本号至 `1.1.0`。
+
 ## v1.0.7 - 修复 Release 正文提取
 
 ### 修复
