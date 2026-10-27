@@ -261,6 +261,24 @@ interface SourceMapLeak {
     mapUrl: string;
 }
 
+/** 静态源码扫描发现的 XSS / 代码注入风险（按「来源 × 模式」聚合） */
+interface XssFinding {
+    /** 命中的模式名，如 dangerouslySetInnerHTML、eval */
+    pattern: string;
+    /** 分类：HTML 注入 / 代码执行 */
+    category: string;
+    /** 推断关联框架：vue / react / generic */
+    framework: 'vue' | 'react' | 'generic';
+    /** 风险等级：high（直接注入面）/ medium（innerHTML 类，需人工确认） */
+    riskLevel: 'high' | 'medium';
+    /** 首个命中点的上下文片段（压缩空白、限长） */
+    snippet: string;
+    /** 来源标识，如 app.js 或 inline#1 */
+    source: string;
+    /** 该模式下在本来源的出现次数 */
+    occurrences: number;
+}
+
 /** API 提取最终结果 */
 interface ApiExtractResult {
     pageUrl: string;
@@ -270,6 +288,7 @@ interface ApiExtractResult {
     liveApis: LiveApiItem[];
     staticApis: StaticApiItem[];
     sourceMaps: SourceMapLeak[];
+    xssFindings: XssFinding[];
     failedScripts: string[];
     extractedAt: number;
 }

@@ -8,6 +8,7 @@ const {
     riskSummary,
     sortedSensitiveApis,
     sortedUnauthorizedRoutes,
+    sortedXssFindings,
     riskIconMap,
     riskLabelMap,
     exportButtonText,
@@ -60,6 +61,10 @@ const {
                             <span class="stat-label">Sourcemap</span>
                             <span class="stat-value">{{ riskSummary?.sourceMapLeakCount || 0 }}</span>
                         </div>
+                        <div class="stat-item">
+                            <span class="stat-label">XSS 风险</span>
+                            <span class="stat-value">{{ riskSummary?.xssCount || 0 }}</span>
+                        </div>
                     </div>
 
                     <div class="risk-breakdown">
@@ -109,6 +114,28 @@ const {
                                 <span class="url-path">{{ route.path }}</span>
                                 <span class="api-item-meta">{{ route.riskDescription }}</span>
                             </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="sortedXssFindings.length > 0" class="security-section">
+                    <div class="section-title">
+                        XSS / 注入风险 ({{ sortedXssFindings.length }})
+                    </div>
+                    <div class="api-list">
+                        <div
+                            v-for="(finding, index) in sortedXssFindings"
+                            :key="index"
+                            class="api-item"
+                            :class="'risk-' + finding.riskLevel"
+                            :title="finding.snippet"
+                        >
+                            <span class="risk-icon">{{ riskIconMap[finding.riskLevel] }}</span>
+                            <span class="api-item-text">
+                                <span class="url-path">{{ finding.pattern }}</span>
+                                <span class="api-item-meta">[{{ finding.category }}] {{ finding.source }} · {{ finding.occurrences }} 处</span>
+                            </span>
+                            <span class="api-source-badge static">{{ finding.framework }}</span>
                         </div>
                     </div>
                 </div>

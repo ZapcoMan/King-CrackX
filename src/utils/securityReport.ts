@@ -42,6 +42,40 @@ function groupByCategory(apis: SensitiveApiDetection[]): Record<string, Sensitiv
     return groups;
 }
 
+/**
+ * 生成 XSS / 注入风险章节的 Markdown 行。
+ * @param report - 审计报告
+ * @param heading - 章节标题前缀（综合报告用 '###'，独立报告用 '##'）
+ */
+function buildXssLines(report: SecurityAuditReport, heading: string): string[] {
+    const out: string[] = [heading + ' XSS / 注入风险', ''];
+    const findings = report.xssFindings || [];
+
+    if (findings.length === 0) {
+        out.push('未发现 XSS / 注入高危模式', '');
+        return out;
+    }
+
+    out.push('共发现 **' + findings.length + '** 项可疑模式（静态源码扫描，需人工确认上下文）', '');
+    out.push('| 模式 | 分类 | 框架 | 风险等级 | 次数 | 来源 | 上下文 |');
+    out.push('|------|------|------|----------|------|------|--------|');
+    for (const f of findings) {
+        const icon = RISK_ICONS[f.riskLevel] || '';
+        const label = RISK_LABELS[f.riskLevel] || '';
+        out.push(
+            '| ' + escapeMarkdown(f.pattern) +
+            ' | ' + f.category +
+            ' | ' + f.framework +
+            ' | ' + icon + ' ' + label +
+            ' | ' + f.occurrences +
+            ' | ' + escapeMarkdown(f.source) +
+            ' | ' + escapeMarkdown(f.snippet) + ' |'
+        );
+    }
+    out.push('');
+    return out;
+}
+
 /** 生成综合报告的参数 */
 export interface FullReportData {
     pageUrl: string;
@@ -269,6 +303,7 @@ export function generateFullReportMarkdown(data: FullReportData): string {
         lines.push('| 已保护路由 | ' + report.summary.protectedRoutes + ' |');
         lines.push('| 未保护路由 | ' + report.summary.unprotectedRoutes + ' |');
         lines.push('| Sourcemap 泄露 | ' + report.summary.sourceMapLeakCount + ' |');
+        lines.push('| XSS / 注入风险 | ' + report.summary.xssCount + ' |');
         lines.push('');
 
         if (report.sensitiveApis.length > 0) {
@@ -347,6 +382,8 @@ export function generateFullReportMarkdown(data: FullReportData): string {
             lines.push('');
         }
 
+        lines.push(...buildXssLines(report, '###'));
+
         if (report.recommendations.length > 0) {
             lines.push('### 安全建议');
             lines.push('');
@@ -393,6 +430,7 @@ export function generateSecurityReportMarkdown(report: SecurityAuditReport): str
     lines.push('| 已保护路由 | ' + report.summary.protectedRoutes + ' |');
     lines.push('| 未保护路由 | ' + report.summary.unprotectedRoutes + ' |');
     lines.push('| Sourcemap 泄露 | ' + report.summary.sourceMapLeakCount + ' |');
+    lines.push('| XSS / 注入风险 | ' + report.summary.xssCount + ' |');
     lines.push('');
     lines.push('---');
     lines.push('');
@@ -478,6 +516,8 @@ export function generateSecurityReportMarkdown(report: SecurityAuditReport): str
         lines.push('未发现 Sourcemap 泄露');
         lines.push('');
     }
+
+    lines.push(...buildXssLines(report, '##'));
 
     lines.push('---');
     lines.push('');

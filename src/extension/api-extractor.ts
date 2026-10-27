@@ -397,6 +397,79 @@
         }
     }
 
+    // ===== XSS / 代码注入静态扫描 =====
+
+    /**
+     * 静态扫描的危险模式（HTML 注入 + eval 类）。
+     * needle 用带括号 / 点 的精确串，避免 document.write 误吞 writeln、
+     * 并降低 innerHTML 这类高频词的匹配面。
+     */
+    const XSS_PATTERNS: Array<{
+        needle: string;
+        pattern: string;
+        category: string;
+        framework: 'vue' | 'react' | 'generic';
+        riskLevel: 'high' | 'medium';
+    }> = [
+        { needle: 'dangerouslySetInnerHTML', pattern: 'dangerouslySetInnerHTML', category: 'HTML 注入', framework: 'react', riskLevel: 'high' },
+        { needle: 'v-html', pattern: 'v-html', category: 'HTML 注入', framework: 'vue', riskLevel: 'high' },
+        { needle: 'document.write(', pattern: 'document.write', category: 'HTML 注入', framework: 'generic', riskLevel: 'high' },
+        { needle: 'document.writeln(', pattern: 'document.writeln', category: 'HTML 注入', framework: 'generic', riskLevel: 'high' },
+        { needle: 'insertAdjacentHTML(', pattern: 'insertAdjacentHTML', category: 'HTML 注入', framework: 'generic', riskLevel: 'high' },
+        { needle: 'eval(', pattern: 'eval', category: '代码执行', framework: 'generic', riskLevel: 'high' },
+        { needle: 'new Function(', pattern: 'new Function', category: '代码执行', framework: 'generic', riskLevel: 'high' },
+        { needle: '.innerHTML', pattern: '.innerHTML', category: 'HTML 注入', framework: 'generic', riskLevel: 'medium' },
+        { needle: '.outerHTML', pattern: '.outerHTML', category: 'HTML 注入', framework: 'generic', riskLevel: 'medium' }
+    ];
+
+    /**
+     * 在源码文本中扫描 XSS / 代码注入危险模式，命中结果写入累加器。
+     *
+     * 复用端点提取已拿到的源码文本，不额外发起请求。按「来源 × 模式」聚合为一条
+     * XssFinding（累计出现次数、保留首个命中上下文），避免逐实例刷屏。
+     *
+     * @param text - JS 源码文本
+     * @param sourceLabel - 来源标识，如 app.js 或 inline#1
+     * @param acc - XSS 累加器，key 为「source|pattern」
+     */
+    function scanXssText(text: string, sourceLabel: string, acc: Record<string, XssFinding>): void {
+        if (!text) return;
+
+        for (const rule of XSS_PATTERNS) {
+            const hits = text.split(rule.needle).length - 1;
+            if (hits <= 0) continue;
+
+            const key = sourceLabel + '|' + rule.pattern;
+            let finding = acc[key];
+            if (!finding) {
+                finding = {
+                    pattern: rule.pattern,
+                    category: rule.category,
+                    framework: rule.framework,
+                    riskLevel: rule.riskLevel,
+                    snippet: makeSnippet(text, text.indexOf(rule.needle)),
+                    source: sourceLabel,
+                    occurrences: 0
+                };
+                acc[key] = finding;
+            }
+            finding.occurrences += hits;
+        }
+    }
+
+    /**
+     * 截取命中点上下文片段，压缩连续空白并限长。
+     * @param text - 源码文本
+     * @param index - 命中起始下标（-1 返回空串）
+     * @returns 不超过 120 字符的上下文片段
+     */
+    function makeSnippet(text: string, index: number): string {
+        if (index < 0) return '';
+        const start = index > 30 ? index - 30 : 0;
+        const slice = text.slice(start, index + 90).replace(/\s+/g, ' ').trim();
+        return slice.length > 120 ? slice.slice(0, 120) + '…' : slice;
+    }
+
     /**
      * 从 JS 源码尾部注释中解析 sourceMappingURL。
      * 形如：//# sourceMappingURL=app.js.map
@@ -499,11 +572,14 @@
 
         const endpoints: Record<string, ApiEndpointEntry> = Object.create(null);
         const sourceMaps: SourceMapLeak[] = [];
+        const xss: Record<string, XssFinding> = Object.create(null);
         const failedScripts: string[] = [];
 
         // 内联脚本为纯文本，可同步分析
         inlineScripts.forEach(function (text, i) {
-            extractFromText(text, endpoints, 'inline#' + (i + 1));
+            const label = 'inline#' + (i + 1);
+            extractFromText(text, endpoints, label);
+            scanXssText(text, label, xss);
         });
 
         // 把外部 JS 的拉取与分析串成 Promise 链，逐个串行执行
@@ -522,7 +598,9 @@
                 }).then(function (text) {
                     if (!text) return;
 
-                    extractFromText(text, endpoints, shortSource(url));
+                    const srcLabel = shortSource(url);
+                    extractFromText(text, endpoints, srcLabel);
+                    scanXssText(text, srcLabel, xss);
 
                     // 顺带探测 sourcemap 泄露（内联 data: 形式无需网络探测，跳过）
                     const mapRef = findSourceMappingURL(text);
@@ -562,6 +640,12 @@
                 };
             }).sort(function (a, b) { return a.path.localeCompare(b.path); });
 
+            // XSS 发现按「风险高在前、同风险按出现次数降序」排序
+            const xssRiskWeight: Record<string, number> = { high: 1, medium: 0 };
+            const xssFindings = Object.keys(xss).map(function (k) { return xss[k]; }).sort(function (a, b) {
+                return (xssRiskWeight[b.riskLevel] - xssRiskWeight[a.riskLevel]) || (b.occurrences - a.occurrences);
+            });
+
             sendResult({
                 pageUrl: location.href,
                 origin: location.origin,
@@ -570,6 +654,7 @@
                 liveApis: liveApis,
                 staticApis: staticApis,
                 sourceMaps: sourceMaps,
+                xssFindings: xssFindings,
                 failedScripts: failedScripts,
                 extractedAt: Date.now()
             });

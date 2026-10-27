@@ -9,7 +9,7 @@
  */
 
 import { computed, ref } from 'vue';
-import { performSecurityAudit, sortSensitiveApisByRisk, sortRoutesByRisk, type SecurityAuditReport } from '../utils/securityAudit';
+import { performSecurityAudit, sortSensitiveApisByRisk, sortRoutesByRisk, sortXssByRisk, type SecurityAuditReport } from '../utils/securityAudit';
 import { generateFullReportMarkdown, generateSecurityReportMarkdown, buildSecurityReportFilename, downloadMarkdownFile, copyMarkdownToClipboard } from '../utils/securityReport';
 import { useRouterAnalysis } from './useRouterAnalysis';
 import { useApiExtract } from './useApiExtract';
@@ -47,6 +47,13 @@ const sortedUnauthorizedRoutes = computed(() => {
     return sortRoutesByRisk(auditReport.value.unauthorizedRoutes);
 });
 
+const sortedXssFindings = computed(() => {
+    if (!auditReport.value) {
+        return [];
+    }
+    return sortXssByRisk(auditReport.value.xssFindings);
+});
+
 const riskIconMap: Record<string, string> = {
     critical: '🔴',
     high: '🟠',
@@ -74,6 +81,7 @@ function runAudit(): void {
     const liveApis = apiExtractResult.value?.liveApis || [];
     const staticApis = apiExtractResult.value?.staticApis || [];
     const sourceMaps = apiExtractResult.value?.sourceMaps || [];
+    const xssFindings = apiExtractResult.value?.xssFindings || [];
 
     if (routes.length === 0 && liveApis.length === 0 && staticApis.length === 0) {
         auditError.value = '请先进行路由分析或 API 提取';
@@ -90,7 +98,8 @@ function runAudit(): void {
             liveApis,
             staticApis,
             routes,
-            sourceMaps
+            sourceMaps,
+            xssFindings
         });
 
         auditReport.value = report;
@@ -170,6 +179,7 @@ export function useSecurityAudit() {
         riskSummary,
         sortedSensitiveApis,
         sortedUnauthorizedRoutes,
+        sortedXssFindings,
         riskIconMap,
         riskLabelMap,
         exportButtonText,

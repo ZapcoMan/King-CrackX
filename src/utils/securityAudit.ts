@@ -59,6 +59,7 @@ export interface SecurityAuditReport {
     routePermissions: RoutePermissionAnalysis[];
     unauthorizedRoutes: RoutePermissionAnalysis[];
     sourceMapRisks: SourceMapRisk[];
+    xssFindings: XssFinding[];
     recommendations: string[];
 }
 
@@ -74,6 +75,9 @@ export interface AuditSummary {
     protectedRoutes: number;
     unprotectedRoutes: number;
     sourceMapLeakCount: number;
+    xssCount: number;
+    xssHighCount: number;
+    xssMediumCount: number;
     overallRisk: 'critical' | 'high' | 'medium' | 'low' | 'safe';
 }
 
@@ -315,7 +319,8 @@ export function analyzeSourceMapRisks(sourceMaps: SourceMapLeak[]): SourceMapRis
 export function generateAuditSummary(
     sensitiveApis: SensitiveApiDetection[],
     routePermissions: RoutePermissionAnalysis[],
-    sourceMapRisks: SourceMapRisk[]
+    sourceMapRisks: SourceMapRisk[],
+    xssFindings: XssFinding[]
 ): AuditSummary {
     const criticalCount = sensitiveApis.filter(a => a.riskLevel === 'critical').length;
     const highCount = sensitiveApis.filter(a => a.riskLevel === 'high').length;
@@ -324,6 +329,9 @@ export function generateAuditSummary(
 
     const protectedRoutes = routePermissions.filter(r => r.isProtected).length;
     const unprotectedRoutes = routePermissions.filter(r => !r.isProtected).length;
+
+    const xssHighCount = xssFindings.filter(f => f.riskLevel === 'high').length;
+    const xssMediumCount = xssFindings.filter(f => f.riskLevel === 'medium').length;
 
     let overallRisk: AuditSummary['overallRisk'];
     if (criticalCount > 0 || unprotectedRoutes > 5) {
@@ -338,6 +346,13 @@ export function generateAuditSummary(
         overallRisk = 'safe';
     }
 
+    // XSS 维度并入整体风险：与 API/路由维度取较高者
+    const riskRank: Record<AuditSummary['overallRisk'], number> = { safe: 0, low: 1, medium: 2, high: 3, critical: 4 };
+    const xssOverall: AuditSummary['overallRisk'] = xssHighCount > 0 ? 'high' : (xssMediumCount > 0 ? 'medium' : 'safe');
+    if (riskRank[xssOverall] > riskRank[overallRisk]) {
+        overallRisk = xssOverall;
+    }
+
     return {
         totalApis: sensitiveApis.length,
         sensitiveApiCount: sensitiveApis.length,
@@ -349,6 +364,9 @@ export function generateAuditSummary(
         protectedRoutes,
         unprotectedRoutes,
         sourceMapLeakCount: sourceMapRisks.length,
+        xssCount: xssFindings.length,
+        xssHighCount,
+        xssMediumCount,
         overallRisk
     };
 }
@@ -372,6 +390,12 @@ export function generateRecommendations(report: SecurityAuditReport): string[] {
 
     if (report.summary.sourceMapLeakCount > 0) {
         recommendations.push('🟡 生产环境不应暴露 Sourcemap，建议在构建时禁用或限制访问');
+    }
+
+    if (report.summary.xssHighCount > 0) {
+        recommendations.push(`🔴 发现 ${report.summary.xssHighCount} 处高危 XSS / 代码注入点（HTML 注入或 eval/new Function），建议核查其输入是否可信并做转义或净化`);
+    } else if (report.summary.xssMediumCount > 0) {
+        recommendations.push(`🟡 发现 ${report.summary.xssMediumCount} 处 innerHTML / outerHTML 使用，建议确认赋值来源已净化`);
     }
 
     const adminRoutes = report.routePermissions.filter(
@@ -407,8 +431,9 @@ export function performSecurityAudit(params: {
     staticApis: StaticApiItem[];
     routes: RouteEntry[];
     sourceMaps: SourceMapLeak[];
+    xssFindings: XssFinding[];
 }): SecurityAuditReport {
-    const { pageUrl, liveApis, staticApis, routes, sourceMaps } = params;
+    const { pageUrl, liveApis, staticApis, routes, sourceMaps, xssFindings } = params;
 
     const sensitiveApis: SensitiveApiDetection[] = [];
 
@@ -425,7 +450,7 @@ export function performSecurityAudit(params: {
     const routePermissions = routes.map(analyzeRoutePermission);
     const unauthorizedRoutes = routePermissions.filter(r => !r.isProtected);
     const sourceMapRisks = analyzeSourceMapRisks(sourceMaps);
-    const summary = generateAuditSummary(sensitiveApis, routePermissions, sourceMapRisks);
+    const summary = generateAuditSummary(sensitiveApis, routePermissions, sourceMapRisks, xssFindings);
 
     const report: SecurityAuditReport = {
         timestamp: Date.now(),
@@ -435,6 +460,7 @@ export function performSecurityAudit(params: {
         routePermissions,
         unauthorizedRoutes,
         sourceMapRisks,
+        xssFindings,
         recommendations: []
     };
 
@@ -466,4 +492,13 @@ export function sortSensitiveApisByRisk(apis: SensitiveApiDetection[]): Sensitiv
  */
 export function sortRoutesByRisk(routes: RoutePermissionAnalysis[]): RoutePermissionAnalysis[] {
     return [...routes].sort((a, b) => RISK_LEVEL_WEIGHT[b.riskLevel] - RISK_LEVEL_WEIGHT[a.riskLevel]);
+}
+
+/**
+ * 按风险等级排序 XSS 发现项（同等级按出现次数降序）。
+ */
+export function sortXssByRisk(findings: XssFinding[]): XssFinding[] {
+    return [...findings].sort((a, b) =>
+        RISK_LEVEL_WEIGHT[b.riskLevel] - RISK_LEVEL_WEIGHT[a.riskLevel] || b.occurrences - a.occurrences
+    );
 }
