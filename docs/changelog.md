@@ -1,5 +1,18 @@
 # King-CrackX 更新日志
 
+## v1.1.1 - 工程一致性与依赖修复
+
+### 修复
+- `manifest.json` 扩展名由上游 `King-Crack` 更正为 `King-CrackX`，与项目名对齐（`chrome://extensions` 显示不再误导）。
+- 清零 `all-in.ts` / `detector.ts` 两处既有 `ReactFiberLike` 索引签名类型错误，`npm run typecheck` 恢复 0 报错。
+- `vite` 由 `8.0.16` 钉到 `^6.0.0`（实测 `6.4.5`），消除与 `@vitejs/plugin-vue@5.2.4` 的 peer 冲突；Release 工作流移除不再必需的 `--legacy-peer-deps`。
+
+### 文档
+- README 新增「权限说明」章节：逐条解释 `activeTab` / `scripting` / `tabs` / `storage` 与 `<all_urls>` 的用途、数据去向与合规边界。
+
+### 变更
+- 同步版本号至 `1.1.1`。
+
 ## v1.1.0 - XSS / 注入检测
 
 ### 新增
