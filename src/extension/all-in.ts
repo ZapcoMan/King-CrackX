@@ -612,7 +612,8 @@
             const containerKey = findReactKey(element, '__reactContainer');
             if (containerKey) {
                 const container = element[containerKey] as ReactFiberLike | null;
-                rootFiber = container?.current || container || null;
+                // container.current 走索引签名是 unknown；显式收窄到 Fiber 类型，再回退到 container 本身
+                rootFiber = (container?.current as ReactFiberLike | null) || container || null;
             }
 
             if (!rootFiber && element._reactRootContainer) {

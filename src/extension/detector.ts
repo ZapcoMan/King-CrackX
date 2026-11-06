@@ -994,7 +994,7 @@
                 const container = element[containerKey] as ReactFiberLike | null;
                 if (container) {
                     // __reactContainer 可能指向 HostRoot fiber，也可能需要经 current 下钻
-                    return container.current || container;
+                    return (container.current as ReactFiberLike | null) || container;
                 }
             }
 
